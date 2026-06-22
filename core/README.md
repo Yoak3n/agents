@@ -1,4 +1,4 @@
-# agent-core
+# yoakore
 
 A modular, extensible foundation for building AI agents in Rust.
 
@@ -24,7 +24,7 @@ A modular, extensible foundation for building AI agents in Rust.
 ## Quick Start
 
 ```rust
-use agent_core::prelude::*;
+use yoakore::prelude::*;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -219,13 +219,13 @@ tools.register(
 
 ```toml
 [dependencies]
-agent-core = { version = "0.1", features = ["extension"] }
+yoakore = { version = "0.1", features = ["extension"] }
 ```
 
 ## Module Structure
 
 ```
-agent-core
+agent-foundation
 ├── agent          # BaseAgent, TeamAgent, SubAgent, AgentLike trait
 ├── hook           # AgentHook trait, HookContext, HookResult
 ├── provider       # OpenAIAdapter, embedding adapters, load balancing

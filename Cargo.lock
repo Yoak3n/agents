@@ -3,27 +3,6 @@
 version = 4
 
 [[package]]
-name = "agent-core"
-version = "0.1.1"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "dirs",
- "futures",
- "futures-core",
- "log",
- "reqwest",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yml",
- "thiserror",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1765,6 +1744,27 @@ name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ffae5123b2d3fc086436f8834ae3ab053a283cfac8fe0a0b8eaae044768a4c4"
+
+[[package]]
+name = "yoakore"
+version = "0.1.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "dirs",
+ "futures",
+ "futures-core",
+ "log",
+ "reqwest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "yoke"

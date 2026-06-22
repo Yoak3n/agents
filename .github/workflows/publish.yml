@@ -9,7 +9,7 @@ on:
         required: true
         type: choice
         options:
-          - agent-core
+          - yoakore
       dry_run:
         description: "试运行 (不实际发布)"
         required: false
@@ -77,7 +77,7 @@ jobs:
 
           # crate 名 -> 目录映射
           case "$CRATE" in
-            agent-core) DIR="core" ;;
+            yoakore) DIR="core" ;;
             *) echo "::error::未知 crate: $CRATE"; exit 1 ;;
           esac
 

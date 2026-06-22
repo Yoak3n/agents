@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 use std::sync::Arc;
 
-use agent_core::prelude::*;
+use yoakore::prelude::*;
 use serde_json::json;
 
 /// 简易单轮 CLI Agent 演示
