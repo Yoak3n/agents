@@ -1,0 +1,113 @@
+name: Publish to crates.io
+
+on:
+  # 手动触发
+  workflow_dispatch:
+    inputs:
+      crate:
+        description: "要发布的 crate"
+        required: true
+        type: choice
+        options:
+          - agent-core
+      dry_run:
+        description: "试运行 (不实际发布)"
+        required: false
+        type: boolean
+        default: true
+
+  # tag 推送触发: {crate}-v{version}
+  # 例: git tag agent-core-v0.1.0 && git push --tags
+  push:
+    tags:
+      - "*-v*"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --all-features
+
+  publish:
+    name: Publish
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Parse tag
+        id: tag
+        if: github.event_name == 'push'
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # 格式: {crate}-v{version}
+          CRATE="${TAG%-v*}"
+          VERSION="${TAG##*-v}"
+          echo "crate=$CRATE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Parsed tag: crate=$CRATE version=$VERSION"
+
+      - name: Resolve crate directory
+        id: dir
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            CRATE="${{ inputs.crate }}"
+          else
+            CRATE="${{ steps.tag.outputs.crate }}"
+          fi
+
+          # crate 名 -> 目录映射
+          case "$CRATE" in
+            agent-core) DIR="core" ;;
+            *) echo "::error::未知 crate: $CRATE"; exit 1 ;;
+          esac
+
+          echo "crate=$CRATE" >> "$GITHUB_OUTPUT"
+          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Verify version matches tag
+        if: github.event_name == 'push'
+        run: |
+          CRATE="${{ steps.dir.outputs.crate }}"
+          VERSION="${{ steps.tag.outputs.version }}"
+          TOML_VERSION=$(cargo metadata --format-version=1 --no-deps \
+            | jq -r ".packages[] | select(.name==\"$CRATE\") | .version")
+
+          echo "Tag version:  $VERSION"
+          echo "Toml version: $TOML_VERSION"
+
+          if [[ "$VERSION" != "$TOML_VERSION" ]]; then
+            echo "::error::Tag 版本 ($VERSION) 与 Cargo.toml 版本 ($TOML_VERSION) 不一致"
+            exit 1
+          fi
+
+      - name: Publish
+        run: |
+          CRATE="${{ steps.dir.outputs.crate }}"
+          DIR="${{ steps.dir.outputs.dir }}"
+
+          if [[ "${{ inputs.dry_run }}" == "true" && "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "=== Dry run: $CRATE ==="
+            cargo publish -p "$CRATE" --dry-run
+          else
+            cargo publish -p "$CRATE" --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          fi
