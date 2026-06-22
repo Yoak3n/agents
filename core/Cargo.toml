@@ -1,0 +1,33 @@
+[package]
+name = "agent-core"
+version = "0.1.0"
+edition = "2024"
+authors = ["Yoak3n"]
+
+
+[dependencies]
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+log.workspace = true
+futures.workspace = true
+reqwest = { version = "0.12", features = ["json", "stream"] }
+futures-core = "0.3"
+bytes = "1"
+async-trait = "0.1"
+
+rusqlite = { version = "0.35", features = ["bundled"] ,optional = true}
+serde_yml = {version = "0.0.12" ,optional = true}
+dirs = {version = "6", optional = true}
+
+
+[features]
+default = [] 
+extension = ["rusqlite","serde_yml","dirs"]
+
+
+[[example]]
+name = "single_turn_cli"
