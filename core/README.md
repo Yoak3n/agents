@@ -89,21 +89,25 @@ The `style` field controls request format:
 
 | Style | Providers | Thinking support |
 |-------|-----------|-----------------|
-| `openai` (default) | OpenAI, DeepSeek, most compatible APIs | `reasoning_effort` |
-| `anthropic` | Claude via Messages API | `budget_tokens` |
+| `openai` (default) | OpenAI, DeepSeek, most compatible APIs | `thinking` (toggle) + `reasoning_effort` (intensity) |
+| `anthropic` | Claude via Messages API | `thinking` (combined toggle + budget) |
 
 ### Thinking / Reasoning Mode
 
-The `thinking` field enables deep reasoning:
+The `thinking` field controls deep reasoning. When set to `default`, no explicit config is sent — the API uses its own default (thinking is ON for o1/o3/Claude/DeepSeek etc.).
 
 ```json
-{ "type": "none" }                              // disabled
-{ "type": "auto" }                              // provider decides
-{ "type": "effort", "level": "high" }           // low / medium / high
-{ "type": "budget", "tokens": 10000 }           // token budget
+{ "type": "default" }                           // 不显式配置，由 API 决定
+{ "type": "disabled" }                          // 显式关闭思考
+{ "type": "auto" }                              // 显式启用，中等强度
+{ "type": "effort", "level": "low" }            // low / medium / high / max
+{ "type": "effort", "level": "max" }            // DeepSeek 等支持的最高强度
+{ "type": "budget", "tokens": 10000 }           // token 预算（Anthropic 风格）
 ```
 
 Cross-API mapping is automatic — effort levels map to approximate budgets and vice versa.
+
+For DeepSeek, thinking is enabled by default. Use `disabled` to turn it off, or `effort` with `max` for maximum reasoning depth.
 
 ## Core Concepts
 

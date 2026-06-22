@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::schema::common::{AgentEvent, ProcessStatus};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, Mutex, watch};
+use tokio::sync::{Mutex, mpsc, watch};
 
 /// A managed subprocess with streaming output capture.
 struct ManagedProcess {

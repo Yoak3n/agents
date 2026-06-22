@@ -39,9 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         },
         |args| {
-            let expr = args["expression"]
-                .as_str()
-                .ok_or("缺少 expression 参数")?;
+            let expr = args["expression"].as_str().ok_or("缺少 expression 参数")?;
             let result = eval_simple_math(expr).map_err(|e| e.to_string())?;
             Ok(format!("{result}"))
         },

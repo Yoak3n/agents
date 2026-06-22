@@ -65,9 +65,7 @@ impl Skill {
     pub fn from_dir(path: &Path) -> Result<Self, SkillError> {
         let skill_md = path.join("SKILL.md");
         if !skill_md.exists() {
-            return Err(SkillError::MissingSkillFile(
-                path.display().to_string(),
-            ));
+            return Err(SkillError::MissingSkillFile(path.display().to_string()));
         }
 
         let content = std::fs::read_to_string(&skill_md)?;
@@ -91,8 +89,8 @@ impl Skill {
         let frontmatter_str = &after_first[..end];
         let body = after_first[end + 3..].trim();
 
-        let fm: SkillFrontmatter = serde_yml::from_str(frontmatter_str)
-            .map_err(|e| SkillError::Yaml(e.to_string()))?;
+        let fm: SkillFrontmatter =
+            serde_yml::from_str(frontmatter_str).map_err(|e| SkillError::Yaml(e.to_string()))?;
 
         if body.is_empty() {
             return Err(SkillError::Yaml("empty instructions body".into()));
@@ -158,7 +156,10 @@ This is a comprehensive guide for testing.
         let skill = Skill::parse(content).unwrap();
         assert_eq!(skill.name, "Test Skill");
         assert_eq!(skill.description, "A test skill for unit testing");
-        assert_eq!(skill.read_when, vec!["Testing things", "Running unit tests"]);
+        assert_eq!(
+            skill.read_when,
+            vec!["Testing things", "Running unit tests"]
+        );
         assert!(skill.instructions.contains("Test Instructions"));
         assert!(skill.is_tool_allowed("Bash"));
         assert!(!skill.is_tool_allowed("write_file"));

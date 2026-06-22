@@ -6,8 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::schema::common::{Message, ModelProvider, NullListener, ToolCall, ToolDefinition};
 
-use crate::llm::{AgentResponse, LlmAdapter};
 use super::bus::MessageBus;
+use crate::llm::{AgentResponse, LlmAdapter};
 
 /// Contact book — maps agent names to their capabilities for routing decisions.
 #[derive(Debug, Clone, Default)]
@@ -17,16 +17,33 @@ pub struct ContactBook {
 
 impl ContactBook {
     pub fn new() -> Self {
-        Self { contacts: HashMap::new() }
+        Self {
+            contacts: HashMap::new(),
+        }
     }
 
-    pub fn add(&mut self, name: String, role: String, capabilities: Vec<String>, description: String) {
-        self.contacts.insert(name.clone(), AgentContact { name, role, capabilities, description });
+    pub fn add(
+        &mut self,
+        name: String,
+        role: String,
+        capabilities: Vec<String>,
+        description: String,
+    ) {
+        self.contacts.insert(
+            name.clone(),
+            AgentContact {
+                name,
+                role,
+                capabilities,
+                description,
+            },
+        );
     }
 
     /// Render all contacts as a human-readable string for system prompts.
     pub fn render(&self) -> String {
-        self.contacts.values()
+        self.contacts
+            .values()
             .map(|c| format!("- {} ({}): {}", c.name, c.role, c.description))
             .collect::<Vec<_>>()
             .join("\n")
@@ -156,10 +173,7 @@ impl CollaborativeAgent {
             contacts = contacts,
         );
 
-        vec![
-            Message::system(&system),
-            Message::user(task),
-        ]
+        vec![Message::system(&system), Message::user(task)]
     }
 
     /// Run one LLM turn with tools, returning what the agent wants to do next.
@@ -177,10 +191,12 @@ impl CollaborativeAgent {
             None => return AgentStep::Error("no available provider".to_string()),
         };
 
-        match self.adapter.chat(&provider, messages, &tools, &NullListener).await {
-            Ok(AgentResponse::MessageComplete(msg)) => {
-                AgentStep::TextOutput(msg.content)
-            }
+        match self
+            .adapter
+            .chat(&provider, messages, &tools, &NullListener)
+            .await
+        {
+            Ok(AgentResponse::MessageComplete(msg)) => AgentStep::TextOutput(msg.content),
             Ok(AgentResponse::ToolCalls(calls)) => {
                 // Check for report_result
                 if let Some(result) = self.find_report_result(&calls) {
@@ -213,18 +229,24 @@ impl CollaborativeAgent {
     pub fn inject_peer_answer(&self, messages: &mut Vec<Message>, peer: &str, answer: &str) {
         // Add a tool result for the ask_peer call (the last assistant message)
         // Find the last ask_peer tool call ID
-        if let Some(last_msg) = messages.iter().rev().find(|m| m.role == crate::schema::common::Role::Assistant) {
-            if let Some(ref tool_calls) = last_msg.tool_calls {
-                for tc in tool_calls {
-                    if tc.name == "ask_peer" {
-                        messages.push(Message::tool_result(&tc.id, answer));
-                        return;
-                    }
+        if let Some(last_msg) = messages
+            .iter()
+            .rev()
+            .find(|m| m.role == crate::schema::common::Role::Assistant)
+            && let Some(ref tool_calls) = last_msg.tool_calls
+        {
+            for tc in tool_calls {
+                if tc.name == "ask_peer" {
+                    messages.push(Message::tool_result(&tc.id, answer));
+                    return;
                 }
             }
         }
         // Fallback: add as user message
-        messages.push(Message::user(&format!("[Response from {}]: {}", peer, answer)));
+        messages.push(Message::user(format!(
+            "[Response from {}]: {}",
+            peer, answer
+        )));
     }
 
     /// Check if any tool call is `report_result` and extract its value.
@@ -232,10 +254,11 @@ impl CollaborativeAgent {
         for call in calls {
             if call.name == "report_result" {
                 return Some(
-                    call.arguments.get("result")
+                    call.arguments
+                        .get("result")
                         .and_then(|v| v.as_str())
                         .unwrap_or("(empty report)")
-                        .to_string()
+                        .to_string(),
                 );
             }
         }
@@ -246,11 +269,15 @@ impl CollaborativeAgent {
     fn find_ask_peer(&self, calls: &[ToolCall]) -> Option<(String, String)> {
         for call in calls {
             if call.name == "ask_peer" {
-                let peer = call.arguments.get("peer")
+                let peer = call
+                    .arguments
+                    .get("peer")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let question = call.arguments.get("question")
+                let question = call
+                    .arguments
+                    .get("question")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
@@ -330,11 +357,7 @@ impl CollaborativeAgentBuilder {
     }
 
     /// Build the agent, registering it with the message bus.
-    pub fn build(
-        self,
-        adapter: Arc<dyn LlmAdapter>,
-        bus: &Arc<MessageBus>,
-    ) -> CollaborativeAgent {
+    pub fn build(self, adapter: Arc<dyn LlmAdapter>, bus: &Arc<MessageBus>) -> CollaborativeAgent {
         let name = self.name.expect("agent name is required");
         let role = self.role.unwrap_or_else(|| "general".to_string());
         let system_prompt = self.system_prompt.unwrap_or_default();

@@ -19,37 +19,29 @@ impl std::fmt::Display for ModelKind {
 }
 
 /// API 风格 — 决定 adapter 如何构建请求
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiStyle {
+    #[default]
     Openai,
     Anthropic,
 }
 
-impl Default for ApiStyle {
-    fn default() -> Self {
-        Self::Openai
-    }
-}
-
 /// 思考/推理模式配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ThinkingConfig {
-    /// 不启用思考模式
-    None,
-    /// 自动 — 让 provider 决定（OpenAI: reasoning_effort=medium, Anthropic: budget_tokens=10000）
+    /// 不显式配置，由 API 自行决定（对 o1/o3/Claude/DeepSeek 等模型默认开启思考）
+    #[default]
+    Default,
+    /// 显式关闭思考（DeepSeek: {"thinking": {"type": "disabled"}}）
+    Disabled,
+    /// 自动 — 显式启用思考（OpenAI: reasoning_effort=medium, Anthropic: budget_tokens=10000）
     Auto,
-    /// 基于努力程度（OpenAI o1/o3 风格）
+    /// 基于努力程度（OpenAI/DeepSeek 风格: reasoning_effort）
     Effort { level: EffortLevel },
     /// 基于 token 预算（Anthropic/Gemini 风格）
     Budget { tokens: u32 },
-}
-
-impl Default for ThinkingConfig {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 /// 思考努力程度
@@ -59,6 +51,8 @@ pub enum EffortLevel {
     Low,
     Medium,
     High,
+    /// DeepSeek 等支持的最高强度
+    Max,
 }
 
 impl EffortLevel {
@@ -67,6 +61,7 @@ impl EffortLevel {
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
+            Self::Max => "max",
         }
     }
 
@@ -76,6 +71,7 @@ impl EffortLevel {
             Self::Low => 2048,
             Self::Medium => 10000,
             Self::High => 32000,
+            Self::Max => 64000,
         }
     }
 }
@@ -84,13 +80,17 @@ impl ThinkingConfig {
     /// 获取 OpenAI 风格的 reasoning_effort 值
     pub fn to_reasoning_effort(&self) -> Option<&'static str> {
         match self {
-            Self::None => None,
+            Self::Default | Self::Disabled => None,
             Self::Auto => Some("medium"),
             Self::Effort { level } => Some(level.as_str()),
             Self::Budget { tokens } => {
-                if *tokens <= 4096 { Some("low") }
-                else if *tokens <= 16384 { Some("medium") }
-                else { Some("high") }
+                if *tokens <= 4096 {
+                    Some("low")
+                } else if *tokens <= 16384 {
+                    Some("medium")
+                } else {
+                    Some("high")
+                }
             }
         }
     }
@@ -99,10 +99,27 @@ impl ThinkingConfig {
     pub fn to_anthropic_thinking(&self) -> Option<serde_json::Value> {
         use serde_json::json;
         match self {
-            Self::None => None,
+            Self::Default => None,
+            Self::Disabled => Some(json!({"type": "disabled"})),
             Self::Auto => Some(json!({"type": "enabled", "budget_tokens": 10000})),
-            Self::Effort { level } => Some(json!({"type": "enabled", "budget_tokens": level.to_budget_tokens()})),
+            Self::Effort { level } => {
+                Some(json!({"type": "enabled", "budget_tokens": level.to_budget_tokens()}))
+            }
             Self::Budget { tokens } => Some(json!({"type": "enabled", "budget_tokens": tokens})),
+        }
+    }
+
+    /// 获取 OpenAI 风格的 thinking 开关（DeepSeek 等兼容 API 使用）
+    ///
+    /// 与 `to_reasoning_effort()` 配合：此方法控制开关，`to_reasoning_effort()` 控制强度。
+    pub fn to_openai_thinking(&self) -> Option<serde_json::Value> {
+        use serde_json::json;
+        match self {
+            Self::Default => None,
+            Self::Disabled => Some(json!({"type": "disabled"})),
+            Self::Auto | Self::Effort { .. } | Self::Budget { .. } => {
+                Some(json!({"type": "enabled"}))
+            }
         }
     }
 }
@@ -222,7 +239,9 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn config_path() -> PathBuf {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join("config.json")
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join("config.json")
     }
 
     pub fn load() -> Result<Self, ConfigError> {
@@ -261,7 +280,6 @@ impl AppConfig {
         }
     }
 }
-
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -309,10 +327,13 @@ mod tests {
     #[test]
     fn test_config_json_roundtrip() {
         let mut config = test_config();
-        config
-            .chat
-            .providers
-            .push(ModelProvider::new(ModelKind::Chat, "extra", "http://localhost", "key", "m"));
+        config.chat.providers.push(ModelProvider::new(
+            ModelKind::Chat,
+            "extra",
+            "http://localhost",
+            "key",
+            "m",
+        ));
 
         let json = serde_json::to_string_pretty(&config).unwrap();
         let loaded: AppConfig = serde_json::from_str(&json).unwrap();
@@ -342,7 +363,10 @@ mod tests {
     #[test]
     fn test_model_kind_json() {
         assert_eq!(serde_json::to_string(&ModelKind::Chat).unwrap(), "\"chat\"");
-        assert_eq!(serde_json::to_string(&ModelKind::Embedding).unwrap(), "\"embedding\"");
+        assert_eq!(
+            serde_json::to_string(&ModelKind::Embedding).unwrap(),
+            "\"embedding\""
+        );
     }
 
     #[test]
@@ -371,7 +395,10 @@ mod tests {
         assert!(config.chat.active.is_none());
         assert_eq!(config.chat.providers.len(), 1);
         assert_eq!(config.chat.providers[0].kind, ModelKind::Chat);
-        assert_eq!(config.embedding.active.as_deref(), Some("ollama-qwen3-embedding"));
+        assert_eq!(
+            config.embedding.active.as_deref(),
+            Some("ollama-qwen3-embedding")
+        );
         assert!(config.embedding.providers.is_empty());
         assert!(config.workspace.is_none());
     }

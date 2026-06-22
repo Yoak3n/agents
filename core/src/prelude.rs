@@ -8,7 +8,10 @@
 pub use crate::schema::common::{Message, Role, ToolCall, ToolDefinition};
 
 // Config
-pub use crate::schema::common::{AppConfig, ApiStyle, ConfigError, EffortLevel, ModelKind, ModelProvider, ProviderGroup, ThinkingConfig};
+pub use crate::schema::common::{
+    ApiStyle, AppConfig, ConfigError, EffortLevel, ModelKind, ModelProvider, ProviderGroup,
+    ThinkingConfig,
+};
 
 // Events
 pub use crate::schema::common::{AgentEvent, EventListener, NullListener, ProcessStatus};
@@ -17,8 +20,8 @@ pub use crate::schema::common::{AgentEvent, EventListener, NullListener, Process
 pub use crate::llm::adapter::{AgentResponse, LlmAdapter};
 
 // Agent
-pub use crate::agent::{AgentLike, ToolExecutor};
 pub use crate::agent::base::BaseAgent;
+pub use crate::agent::{AgentLike, ToolExecutor};
 
 // Hooks
 pub use crate::hook::{AgentHook, HookContext, HookResult};
@@ -27,7 +30,7 @@ pub use crate::hook::{AgentHook, HookContext, HookResult};
 pub use crate::error::AgentError;
 
 // Tools
-pub use crate::tools::{ToolRegistry, ProcessManager};
+pub use crate::tools::{ProcessManager, ToolRegistry};
 
 // State
 pub use crate::llm::state::{AgentState, Conversation};
@@ -38,6 +41,5 @@ pub use crate::provider::OpenAIAdapter;
 // Extension types (feature-gated)
 #[cfg(feature = "extension")]
 pub use crate::schema::extension::{
-    Skill, SkillError, Storage, StorageError,
-    SessionSummary, MemoryEntry,
+    MemoryEntry, SessionSummary, Skill, SkillError, Storage, StorageError,
 };

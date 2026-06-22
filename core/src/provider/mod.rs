@@ -2,12 +2,12 @@ pub mod embedding;
 pub mod openai;
 pub mod semaphore;
 
+#[cfg(feature = "extension")]
+pub use embedding::embed_missing_documents;
 pub use embedding::{
     EmbeddingAdapter, EmbeddingError, OllamaEmbeddingAdapter, OpenAIEmbeddingAdapter,
     create_embedding_adapter,
 };
-#[cfg(feature = "extension")]
-pub use embedding::embed_missing_documents;
 pub use openai::OpenAIAdapter;
 pub use semaphore::{Semaphore, SemaphoreError};
 
@@ -59,8 +59,7 @@ impl ProviderBalancer {
     }
 
     pub fn select(&self) -> Option<&ModelProvider> {
-        let enabled: Vec<&ModelProvider> =
-            self.providers.iter().filter(|p| p.enabled).collect();
+        let enabled: Vec<&ModelProvider> = self.providers.iter().filter(|p| p.enabled).collect();
 
         if enabled.is_empty() {
             return None;
@@ -72,10 +71,7 @@ impl ProviderBalancer {
         }
     }
 
-    fn select_round_robin<'a>(
-        &self,
-        providers: &[&'a ModelProvider],
-    ) -> Option<&'a ModelProvider> {
+    fn select_round_robin<'a>(&self, providers: &[&'a ModelProvider]) -> Option<&'a ModelProvider> {
         let idx = self.rr_index.fetch_add(1, Ordering::Relaxed) % providers.len();
         providers.get(idx).copied()
     }
@@ -143,13 +139,19 @@ mod tests {
     #[test]
     fn test_auto_detect_round_robin() {
         let providers = vec![make_provider("a", 1), make_provider("b", 1)];
-        assert_eq!(BalanceStrategy::auto_detect(&providers), BalanceStrategy::RoundRobin);
+        assert_eq!(
+            BalanceStrategy::auto_detect(&providers),
+            BalanceStrategy::RoundRobin
+        );
     }
 
     #[test]
     fn test_auto_detect_weighted() {
         let providers = vec![make_provider("a", 5), make_provider("b", 1)];
-        assert_eq!(BalanceStrategy::auto_detect(&providers), BalanceStrategy::WeightedRoundRobin);
+        assert_eq!(
+            BalanceStrategy::auto_detect(&providers),
+            BalanceStrategy::WeightedRoundRobin
+        );
     }
 
     #[test]

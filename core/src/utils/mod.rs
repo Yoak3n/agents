@@ -45,7 +45,11 @@ fn find_boundary(text: &str, max_chars: usize) -> usize {
     let search_start_char = (max_chars * 2 / 3).min(char_count);
 
     // 将字符位置转换为字节偏移用于 str::find
-    let search_start_byte: usize = text.chars().take(search_start_char).map(|c| c.len_utf8()).sum();
+    let search_start_byte: usize = text
+        .chars()
+        .take(search_start_char)
+        .map(|c| c.len_utf8())
+        .sum();
 
     // 优先找段落边界（双换行）
     if let Some(pos) = text[search_start_byte..].find("\n\n") {

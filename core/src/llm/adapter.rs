@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 
-use crate::schema::common::{Message, ModelProvider, ToolCall, ToolDefinition};
 use crate::schema::common::EventListener;
+use crate::schema::common::{Message, ModelProvider, ToolCall, ToolDefinition};
 
 use crate::error::AgentError;
 

@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-use crate::schema::common::{AgentEvent, Message, ModelProvider, Role, ToolCall, ToolDefinition};
-use crate::schema::common::EventListener;
-use crate::llm::adapter::{AgentResponse, LlmAdapter};
 use crate::error::AgentError;
+use crate::llm::adapter::{AgentResponse, LlmAdapter};
+use crate::schema::common::EventListener;
+use crate::schema::common::{AgentEvent, Message, ModelProvider, Role, ToolCall, ToolDefinition};
 
 pub struct OpenAIAdapter {
     client: Client,
@@ -183,7 +183,10 @@ impl LlmAdapter for OpenAIAdapter {
         tools: &[ToolDefinition],
         listener: &dyn EventListener,
     ) -> Result<AgentResponse, AgentError> {
-        let url = format!("{}/chat/completions", provider.base_url.trim_end_matches('/'));
+        let url = format!(
+            "{}/chat/completions",
+            provider.base_url.trim_end_matches('/')
+        );
 
         let chat_messages = build_messages(messages);
         let chat_tools = if tools.is_empty() {
@@ -193,15 +196,16 @@ impl LlmAdapter for OpenAIAdapter {
         };
 
         // Build thinking config based on style
+        // OpenAI style: thinking (toggle) + reasoning_effort (intensity)
+        // Anthropic style: thinking (combined toggle + budget)
         let (reasoning_effort, thinking) = match provider.style {
             crate::schema::common::ApiStyle::Openai => (
                 provider.thinking.to_reasoning_effort().map(String::from),
-                None,
+                provider.thinking.to_openai_thinking(),
             ),
-            crate::schema::common::ApiStyle::Anthropic => (
-                None,
-                provider.thinking.to_anthropic_thinking(),
-            ),
+            crate::schema::common::ApiStyle::Anthropic => {
+                (None, provider.thinking.to_anthropic_thinking())
+            }
         };
 
         let request = ChatRequest {
@@ -318,12 +322,20 @@ impl LlmAdapter for OpenAIAdapter {
                 .collect();
 
             let mut assistant_msg = Message::assistant("");
-            assistant_msg.reasoning_content = if full_reasoning.is_empty() { None } else { Some(full_reasoning) };
+            assistant_msg.reasoning_content = if full_reasoning.is_empty() {
+                None
+            } else {
+                Some(full_reasoning)
+            };
             assistant_msg.tool_calls = Some(calls.clone());
             Ok(AgentResponse::ToolCalls(calls))
         } else {
             let mut assistant_msg = Message::assistant(&full_content);
-            assistant_msg.reasoning_content = if full_reasoning.is_empty() { None } else { Some(full_reasoning) };
+            assistant_msg.reasoning_content = if full_reasoning.is_empty() {
+                None
+            } else {
+                Some(full_reasoning)
+            };
             Ok(AgentResponse::MessageComplete(assistant_msg))
         }
     }

@@ -33,7 +33,9 @@ impl MessageBus {
             mailboxes.get(&msg.to).cloned()
         };
         if let Some(sender) = sender {
-            sender.send(msg).map_err(|e| format!("Failed to send message: {e}"))
+            sender
+                .send(msg)
+                .map_err(|e| format!("Failed to send message: {e}"))
         } else {
             Err(format!("Agent '{}' not found", msg.to))
         }

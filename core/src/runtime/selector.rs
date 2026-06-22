@@ -50,7 +50,7 @@ impl SkillSelector for HeuristicSelector {
             .collect();
 
         // 按分数降序排列
-        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        scored.sort_by_key(|b| std::cmp::Reverse(b.0));
 
         // 返回分数 > 0 的 skills，无匹配返回空
         scored
