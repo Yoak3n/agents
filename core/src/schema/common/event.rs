@@ -45,14 +45,17 @@ pub enum AgentEvent {
     /// Streaming output from a managed subprocess (stdout or stderr)
     ProcessOutput { call_id: String, line: String },
     /// Status change of a managed subprocess
-    ProcessStatus { call_id: String, status: ProcessStatus },
+    ProcessStatus {
+        call_id: String,
+        status: ProcessStatus,
+    },
     /// Agent encountered an error
     Error(String),
     /// Agent finished processing
     Done,
     // ── Session management events ──
     /// Session list loaded
-    
+
     #[cfg(feature = "extension")]
     SessionsLoaded(Vec<SessionSummary>),
     /// New session created (session_id)
@@ -60,7 +63,14 @@ pub enum AgentEvent {
     /// Switched to a session (session_id)
     SessionSwitched(String),
     /// Messages loaded for a session
-    MessagesLoaded { session_id: String, messages: Vec<Message> },
+    MessagesLoaded {
+        session_id: String,
+        messages: Vec<Message>,
+    },
     /// More messages loaded for infinite scroll
-    MoreMessagesLoaded { session_id: String, messages: Vec<Message>, has_more: bool },
+    MoreMessagesLoaded {
+        session_id: String,
+        messages: Vec<Message>,
+        has_more: bool,
+    },
 }

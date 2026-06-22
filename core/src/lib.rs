@@ -1,11 +1,11 @@
 // ── Modules ──
 pub mod agent;
 pub mod hook;
+pub mod prelude;
 pub mod provider;
 pub mod runtime;
 pub mod schema;
 pub mod tools;
-pub mod prelude;
 
 mod error;
 mod llm;
@@ -16,10 +16,9 @@ pub use error::AgentError;
 
 // ── Schema: message, tool, config, event ──
 pub use schema::common::{
-    Message, Role,
-    ToolCall, ToolDefinition,
-    AppConfig, ApiStyle, ConfigError, EffortLevel, McpServerConfig, ModelKind, ModelProvider, ProviderGroup, ThinkingConfig, WorkspaceConfig,
-    AgentEvent, EventListener, NullListener, ProcessStatus
+    AgentEvent, ApiStyle, AppConfig, ConfigError, EffortLevel, EventListener, McpServerConfig,
+    Message, ModelKind, ModelProvider, NullListener, ProcessStatus, ProviderGroup, Role,
+    ThinkingConfig, ToolCall, ToolDefinition, WorkspaceConfig,
 };
 
 // ── LLM ──
@@ -27,28 +26,27 @@ pub use llm::adapter::{AgentResponse, LlmAdapter};
 pub use llm::state::{AgentState, Conversation};
 
 // ── Agent ──
-pub use agent::{AgentLike, ToolExecutor};
 pub use agent::base::BaseAgent;
-pub use agent::team::{
-    TeamAgent, TeamAgentBuilder, TeamResult,
-    CollaborativeAgent, CollaborativeAgentBuilder,
-    AgentStep, AgentContact,
-    AgentMessage, MessageType, ContactBook, MessageBus,
+pub use agent::subagent::{
+    SubAgent, SubAgentContext, SubAgentError, SubAgentRegistry, SubAgentResult,
 };
-pub use agent::subagent::{SubAgent, SubAgentContext, SubAgentResult, SubAgentRegistry, SubAgentError};
+pub use agent::team::{
+    AgentContact, AgentMessage, AgentStep, CollaborativeAgent, CollaborativeAgentBuilder,
+    ContactBook, MessageBus, MessageType, TeamAgent, TeamAgentBuilder, TeamResult,
+};
+pub use agent::{AgentLike, ToolExecutor};
 
 // ── Hooks ──
 pub use hook::{AgentHook, HookContext, HookResult};
 
 // ── Provider ──
 pub use provider::{
-    EmbeddingAdapter, EmbeddingError, OllamaEmbeddingAdapter, OpenAIEmbeddingAdapter,
-    OpenAIAdapter, ProviderBalancer, Semaphore, SemaphoreError,
-    create_embedding_adapter,
+    EmbeddingAdapter, EmbeddingError, OllamaEmbeddingAdapter, OpenAIAdapter,
+    OpenAIEmbeddingAdapter, ProviderBalancer, Semaphore, SemaphoreError, create_embedding_adapter,
 };
 
 // ── Tools ──
-pub use tools::{ToolRegistry, ProcessManager};
+pub use tools::{ProcessManager, ToolRegistry};
 
 // ── Utilities ──
 pub use utils::{chunk_text, estimate_tokens};
@@ -60,6 +58,6 @@ pub use provider::embed_missing_documents;
 pub use runtime::selector::{HeuristicSelector, SkillSelector};
 #[cfg(feature = "extension")]
 pub use schema::extension::{
-    Skill, SkillError, Storage, StorageError,
-    SessionSummary, ConversationInfo, Summary, Document, DocumentSearchResult, MemoryEntry,
+    ConversationInfo, Document, DocumentSearchResult, MemoryEntry, SessionSummary, Skill,
+    SkillError, Storage, StorageError, Summary,
 };

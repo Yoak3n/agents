@@ -1,4 +1,4 @@
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -16,7 +16,9 @@ impl Storage {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(db_path)?;
-        let storage = Self { conn: Mutex::new(conn) };
+        let storage = Self {
+            conn: Mutex::new(conn),
+        };
         storage.init_tables()?;
         Ok(storage)
     }
@@ -27,15 +29,17 @@ impl Storage {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
-        let storage = Self { conn: Mutex::new(conn) };
+        let storage = Self {
+            conn: Mutex::new(conn),
+        };
         storage.init_tables()?;
         Ok(storage)
     }
 
     fn db_path() -> Result<PathBuf, StorageError> {
         let base = dirs::data_dir()
-            .or_else(|| dirs::config_dir())
-            .or_else(|| dirs::home_dir())
+            .or_else(dirs::config_dir)
+            .or_else(dirs::home_dir)
             .unwrap_or_else(|| PathBuf::from("."));
         Ok(base.join("ai-partner").join("conversations.db"))
     }
@@ -119,7 +123,12 @@ impl Storage {
 
     // ── Sessions ──
 
-    pub fn create_session(&self, id: &str, title: Option<&str>, first_message: Option<&str>) -> Result<(), StorageError> {
+    pub fn create_session(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        first_message: Option<&str>,
+    ) -> Result<(), StorageError> {
         let now = chrono::Utc::now().to_rfc3339();
         self.conn.lock().unwrap().execute(
             "INSERT INTO sessions (id, title, first_message, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -128,7 +137,11 @@ impl Storage {
         Ok(())
     }
 
-    pub fn update_session_first_message(&self, id: &str, first_message: &str) -> Result<(), StorageError> {
+    pub fn update_session_first_message(
+        &self,
+        id: &str,
+        first_message: &str,
+    ) -> Result<(), StorageError> {
         self.conn.lock().unwrap().execute(
             "UPDATE sessions SET first_message = ?1 WHERE id = ?2 AND first_message IS NULL",
             params![first_message, id],
@@ -213,7 +226,10 @@ impl Storage {
         Ok(())
     }
 
-    pub fn list_conversations(&self, session_id: &str) -> Result<Vec<ConversationInfo>, StorageError> {
+    pub fn list_conversations(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<ConversationInfo>, StorageError> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
@@ -305,8 +321,7 @@ impl Storage {
             let timestamp = chrono::DateTime::parse_from_rfc3339(&ts_str)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now());
-            let tool_calls = tool_calls_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let tool_calls = tool_calls_json.and_then(|json| serde_json::from_str(&json).ok());
 
             Ok(Message {
                 id: uuid::Uuid::parse_str(&id_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
@@ -322,7 +337,10 @@ impl Storage {
     }
 
     /// Load messages for a specific conversation (ordered by sort_order).
-    pub fn load_messages_by_conversation(&self, conversation_id: &str) -> Result<Vec<Message>, StorageError> {
+    pub fn load_messages_by_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Vec<Message>, StorageError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, role, content, timestamp, reasoning_content, tool_calls, tool_call_id FROM messages
@@ -346,8 +364,7 @@ impl Storage {
             let timestamp = chrono::DateTime::parse_from_rfc3339(&ts_str)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now());
-            let tool_calls = tool_calls_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let tool_calls = tool_calls_json.and_then(|json| serde_json::from_str(&json).ok());
 
             Ok(Message {
                 id: uuid::Uuid::parse_str(&id_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
@@ -391,8 +408,7 @@ impl Storage {
             let timestamp = chrono::DateTime::parse_from_rfc3339(&ts_str)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now());
-            let tool_calls = tool_calls_json
-                .and_then(|json| serde_json::from_str(&json).ok());
+            let tool_calls = tool_calls_json.and_then(|json| serde_json::from_str(&json).ok());
 
             Ok(Message {
                 id: uuid::Uuid::parse_str(&id_str).unwrap_or_else(|_| uuid::Uuid::new_v4()),
@@ -457,7 +473,12 @@ impl Storage {
     }
 
     /// Search summaries by keyword across all conversations.
-    pub fn search_summaries(&self, query: &str, offset: i64, limit: i64) -> Result<Vec<Summary>, StorageError> {
+    pub fn search_summaries(
+        &self,
+        query: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<Summary>, StorageError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, conversation_id, content, message_range, created_at
@@ -536,8 +557,7 @@ impl Storage {
 
     // ── Memories (weighted with forgetting curve) ──
 
-    const SELECT_MEMORY_COLS: &'static str =
-        "id, title, content, tags, session_id, conversation_id, weight, last_activated_at, activation_count, created_at, updated_at";
+    const SELECT_MEMORY_COLS: &'static str = "id, title, content, tags, session_id, conversation_id, weight, last_activated_at, activation_count, created_at, updated_at";
 
     fn row_to_memory(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry> {
         Ok(MemoryEntry {
@@ -606,13 +626,18 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         // First get the current weight and last_activated_at
         let mut stmt = conn.prepare(&format!(
-            "SELECT {} FROM memories WHERE id = ?1", Self::SELECT_MEMORY_COLS
+            "SELECT {} FROM memories WHERE id = ?1",
+            Self::SELECT_MEMORY_COLS
         ))?;
         let mut rows = stmt.query_map(params![id], Self::row_to_memory)?;
         match rows.next() {
             Some(row) => {
                 let mut entry = row?;
-                let decayed = Self::calc_decay_weight(entry.weight, &entry.last_activated_at, MEMORY_DECAY_RATE);
+                let decayed = Self::calc_decay_weight(
+                    entry.weight,
+                    &entry.last_activated_at,
+                    MEMORY_DECAY_RATE,
+                );
                 // Update weight in DB
                 conn.execute(
                     "UPDATE memories SET weight = ?2 WHERE id = ?1",
@@ -631,13 +656,18 @@ impl Storage {
         let conn = self.conn.lock().unwrap();
         // Get current memory
         let mut stmt = conn.prepare(&format!(
-            "SELECT {} FROM memories WHERE id = ?1", Self::SELECT_MEMORY_COLS
+            "SELECT {} FROM memories WHERE id = ?1",
+            Self::SELECT_MEMORY_COLS
         ))?;
         let mut rows = stmt.query_map(params![id], Self::row_to_memory)?;
         match rows.next() {
             Some(row) => {
                 let entry = row?;
-                let decayed = Self::calc_decay_weight(entry.weight, &entry.last_activated_at, MEMORY_DECAY_RATE);
+                let decayed = Self::calc_decay_weight(
+                    entry.weight,
+                    &entry.last_activated_at,
+                    MEMORY_DECAY_RATE,
+                );
                 let new_weight = (decayed + 0.1_f64).min(2.0_f64);
                 conn.execute(
                     "UPDATE memories SET weight = ?2, last_activated_at = ?3, activation_count = activation_count + 1 WHERE id = ?1",
@@ -645,7 +675,8 @@ impl Storage {
                 )?;
                 // Fetch updated entry
                 let mut stmt2 = conn.prepare(&format!(
-                    "SELECT {} FROM memories WHERE id = ?1", Self::SELECT_MEMORY_COLS
+                    "SELECT {} FROM memories WHERE id = ?1",
+                    Self::SELECT_MEMORY_COLS
                 ))?;
                 let mut rows2 = stmt2.query_map(params![id], Self::row_to_memory)?;
                 match rows2.next() {
@@ -669,7 +700,8 @@ impl Storage {
         let mut entries: Vec<MemoryEntry> = Vec::new();
         for row in rows {
             let mut entry = row?;
-            let decayed = Self::calc_decay_weight(entry.weight, &entry.last_activated_at, MEMORY_DECAY_RATE);
+            let decayed =
+                Self::calc_decay_weight(entry.weight, &entry.last_activated_at, MEMORY_DECAY_RATE);
             // Update weight in DB
             conn.execute(
                 "UPDATE memories SET weight = ?2 WHERE id = ?1",
@@ -679,12 +711,21 @@ impl Storage {
             entries.push(entry);
         }
         // Re-sort by decayed weight
-        entries.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+        entries.sort_by(|a, b| {
+            b.weight
+                .partial_cmp(&a.weight)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(entries)
     }
 
     /// Search memories by text with real-time decay, paginated.
-    pub fn search_memories(&self, query: &str, offset: i64, limit: i64) -> Result<Vec<MemoryEntry>, StorageError> {
+    pub fn search_memories(
+        &self,
+        query: &str,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<MemoryEntry>, StorageError> {
         let pattern = format!("%{query}%");
         let conn = self.conn.lock().unwrap();
         // Fetch matching memories and apply decay in Rust
@@ -696,7 +737,8 @@ impl Storage {
         let mut entries: Vec<MemoryEntry> = Vec::new();
         for row in rows {
             let mut entry = row?;
-            let decayed = Self::calc_decay_weight(entry.weight, &entry.last_activated_at, MEMORY_DECAY_RATE);
+            let decayed =
+                Self::calc_decay_weight(entry.weight, &entry.last_activated_at, MEMORY_DECAY_RATE);
             conn.execute(
                 "UPDATE memories SET weight = ?2 WHERE id = ?1",
                 params![entry.id, decayed],
@@ -704,12 +746,20 @@ impl Storage {
             entry.weight = decayed;
             entries.push(entry);
         }
-        entries.sort_by(|a, b| b.weight.partial_cmp(&a.weight).unwrap_or(std::cmp::Ordering::Equal));
+        entries.sort_by(|a, b| {
+            b.weight
+                .partial_cmp(&a.weight)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(entries)
     }
 
     pub fn delete_memory(&self, id: &str) -> Result<bool, StorageError> {
-        let rows = self.conn.lock().unwrap().execute("DELETE FROM memories WHERE id = ?1", params![id])?;
+        let rows = self
+            .conn
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM memories WHERE id = ?1", params![id])?;
         Ok(rows > 0)
     }
 
@@ -747,7 +797,11 @@ impl Storage {
             });
         }
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(limit);
         Ok(results)
     }
@@ -871,7 +925,9 @@ mod tests {
         let storage = temp_storage();
         let session_id = "test-session-1";
         let conv_id = "test-conv-1";
-        storage.create_session(session_id, Some("Test Chat"), None).unwrap();
+        storage
+            .create_session(session_id, Some("Test Chat"), None)
+            .unwrap();
         storage.create_conversation(conv_id, session_id).unwrap();
 
         let msg1 = Message::user("Hello");

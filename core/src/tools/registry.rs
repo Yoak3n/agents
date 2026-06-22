@@ -9,7 +9,10 @@ use super::process::ProcessManager;
 
 type ToolHandler = Box<dyn Fn(serde_json::Value) -> Result<String, String> + Send + Sync>;
 type AsyncToolHandler = Box<
-    dyn Fn(serde_json::Value, Arc<ProcessManager>) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
+    dyn Fn(
+            serde_json::Value,
+            Arc<ProcessManager>,
+        ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
         + Send
         + Sync,
 >;
@@ -46,12 +49,12 @@ impl ToolRegistry {
         &mut self,
         definition: ToolDefinition,
         handler: impl Fn(
-                serde_json::Value,
-                Arc<ProcessManager>,
-            ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
-            + Send
-            + Sync
-            + 'static,
+            serde_json::Value,
+            Arc<ProcessManager>,
+        ) -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync
+        + 'static,
     ) {
         let name = definition.name.clone();
         self.tools

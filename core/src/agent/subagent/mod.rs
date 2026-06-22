@@ -1,9 +1,9 @@
 pub mod registry;
 
-use async_trait::async_trait;
 use crate::schema::common::{AppConfig, Message};
 #[cfg(feature = "extension")]
 use crate::schema::extension::skill::Skill;
+use async_trait::async_trait;
 /// Sub-agent unified interface.
 #[async_trait]
 pub trait SubAgent: Send + Sync {
@@ -34,4 +34,4 @@ pub struct SubAgentResult {
     pub metadata: Option<serde_json::Value>,
 }
 
-pub use registry::{SubAgentRegistry, SubAgentError};
+pub use registry::{SubAgentError, SubAgentRegistry};

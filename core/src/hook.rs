@@ -44,11 +44,7 @@ pub trait AgentHook: Send + Sync {
     }
 
     /// 工具执行前
-    async fn before_tool_call(
-        &self,
-        _ctx: &HookContext<'_>,
-        _call: &ToolCall,
-    ) -> HookResult {
+    async fn before_tool_call(&self, _ctx: &HookContext<'_>, _call: &ToolCall) -> HookResult {
         HookResult::Continue
     }
 

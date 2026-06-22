@@ -10,13 +10,13 @@ use serde_json::json;
 
 use crate::schema::common::{Message, ModelProvider, NullListener};
 
-use crate::llm::{AgentResponse, LlmAdapter};
 use super::subagent::{SubAgent, SubAgentContext, SubAgentResult};
+use crate::llm::{AgentResponse, LlmAdapter};
 
-pub use agent::{CollaborativeAgent, CollaborativeAgentBuilder, ContactBook, AgentContact};
 pub use agent::AgentStep;
+pub use agent::{AgentContact, CollaborativeAgent, CollaborativeAgentBuilder, ContactBook};
 pub use bus::MessageBus;
-pub use message::{AgentMessage, MessageType, AgentResponseMessage};
+pub use message::{AgentMessage, AgentResponseMessage, MessageType};
 
 /// Result from a team task execution.
 pub struct TeamResult {
@@ -75,7 +75,10 @@ impl TeamAgent {
         let mut results = Vec::new();
 
         // Build name→index lookup
-        let agent_index: HashMap<String, usize> = self.agents.iter().enumerate()
+        let agent_index: HashMap<String, usize> = self
+            .agents
+            .iter()
+            .enumerate()
             .map(|(i, a)| (a.name().to_string(), i))
             .collect();
 
@@ -106,9 +109,11 @@ impl TeamAgent {
                         // Route the ask to the target agent
                         let answer = if let Some(&target_idx) = agent_index.get(&peer) {
                             let target = &self.agents[target_idx];
-                            self.ask_agent(target, task, &question, &conversation_id).await
+                            self.ask_agent(target, task, &question, &conversation_id)
+                                .await
                         } else {
-                            format!("[Error: agent '{}' not found. Available: {}]",
+                            format!(
+                                "[Error: agent '{}' not found. Available: {}]",
                                 peer,
                                 agent_index.keys().cloned().collect::<Vec<_>>().join(", ")
                             )
@@ -162,7 +167,10 @@ impl TeamAgent {
         let mut messages = agent.build_task_messages(&context_msg);
 
         // Build name→index for sub-routing
-        let agent_index: HashMap<String, usize> = self.agents.iter().enumerate()
+        let agent_index: HashMap<String, usize> = self
+            .agents
+            .iter()
+            .enumerate()
             .map(|(i, a)| (a.name().to_string(), i))
             .collect();
 
@@ -171,11 +179,15 @@ impl TeamAgent {
                 AgentStep::Done(result) => return result,
                 AgentStep::TextOutput(text) if text.is_empty() => continue,
                 AgentStep::TextOutput(text) => return text,
-                AgentStep::AskPeer { peer, question: sub_q } => {
+                AgentStep::AskPeer {
+                    peer,
+                    question: sub_q,
+                } => {
                     // Recursive: this agent is asking another
                     let answer = if let Some(&idx) = agent_index.get(&peer) {
                         let target = &self.agents[idx];
-                        Box::pin(self.ask_agent(target, original_task, &sub_q, conversation_id)).await
+                        Box::pin(self.ask_agent(target, original_task, &sub_q, conversation_id))
+                            .await
                     } else {
                         format!("[Error: agent '{}' not found]", peer)
                     };
@@ -189,7 +201,8 @@ impl TeamAgent {
     }
 
     async fn synthesize_results(&self, task: &str, results: &[(String, String, String)]) -> String {
-        let summaries: Vec<String> = results.iter()
+        let summaries: Vec<String> = results
+            .iter()
             .map(|(name, role, output)| format!("[{} - {}]: {}", name, role, output))
             .collect();
 
@@ -217,11 +230,17 @@ impl TeamAgent {
             }
         };
         let messages = vec![
-            Message::system("You are a team coordinator. Synthesize agent contributions into a coherent response."),
+            Message::system(
+                "You are a team coordinator. Synthesize agent contributions into a coherent response.",
+            ),
             Message::user(&prompt),
         ];
 
-        match self.adapter.chat(&provider, &messages, &[], &NullListener).await {
+        match self
+            .adapter
+            .chat(&provider, &messages, &[], &NullListener)
+            .await
+        {
             Ok(AgentResponse::MessageComplete(msg)) => msg.content,
             _ => summaries.join("\n\n"),
         }

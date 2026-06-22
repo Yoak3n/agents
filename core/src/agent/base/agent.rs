@@ -1,11 +1,13 @@
 use std::sync::{Arc, Mutex};
 
-use crate::schema::common::{AgentEvent, EventListener, Message, ModelProvider, NullListener, ToolDefinition};
-use crate::llm::{AgentResponse, LlmAdapter};
-use crate::error::AgentError;
 use crate::agent::AgentLike;
+use crate::error::AgentError;
 use crate::hook::{AgentHook, HookContext, HookResult};
-use crate::tools::{ToolRegistry, ProcessManager};
+use crate::llm::{AgentResponse, LlmAdapter};
+use crate::schema::common::{
+    AgentEvent, EventListener, Message, ModelProvider, NullListener, ToolDefinition,
+};
+use crate::tools::{ProcessManager, ToolRegistry};
 
 /// Wrapper that adapts a `FnMut(&AgentEvent)` closure into an `EventListener`.
 struct FnEventListener<F: FnMut(&AgentEvent) + Send + Sync>(Mutex<F>);
@@ -133,7 +135,10 @@ impl BaseAgent {
 
             // ── LLM call ──
             self.emit(AgentEvent::Thinking);
-            let response = self.adapter.chat(provider, messages, &tools, &*self.listener).await?;
+            let response = self
+                .adapter
+                .chat(provider, messages, &tools, &*self.listener)
+                .await?;
 
             // ── after_llm_call hook ──
             let mut response = response;
@@ -170,7 +175,8 @@ impl BaseAgent {
                                     return Err(AgentError::Other(reason));
                                 }
                                 HookResult::Skip => {
-                                    messages.push(Message::tool_result(&call.id, "[skipped by hook]"));
+                                    messages
+                                        .push(Message::tool_result(&call.id, "[skipped by hook]"));
                                     continue;
                                 }
                                 HookResult::Continue => {}
@@ -178,12 +184,10 @@ impl BaseAgent {
                         }
 
                         let result = match &self.tools {
-                            Some(registry) => {
-                                registry
-                                    .call(&call.name, call.arguments.clone(), &self.process_manager)
-                                    .await
-                                    .unwrap_or_else(|e| format!("Tool error: {e}"))
-                            }
+                            Some(registry) => registry
+                                .call(&call.name, call.arguments.clone(), &self.process_manager)
+                                .await
+                                .unwrap_or_else(|e| format!("Tool error: {e}")),
                             None => format!("Tool '{}' not available", call.name),
                         };
 
@@ -230,9 +234,7 @@ impl AgentLike for BaseAgent {
         tools: &[ToolDefinition],
         listener: &dyn EventListener,
     ) -> Result<AgentResponse, AgentError> {
-        self.adapter
-            .chat(provider, messages, tools, listener)
-            .await
+        self.adapter.chat(provider, messages, tools, listener).await
     }
 
     fn max_tool_rounds(&self) -> usize {

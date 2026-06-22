@@ -1,8 +1,8 @@
 use std::io::{self, Write};
 use std::sync::Arc;
 
-use agent_core::prelude::*;
 use serde_json::json;
+use yoakore::prelude::*;
 
 /// 简易单轮 CLI Agent 演示
 ///
@@ -39,9 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         },
         |args| {
-            let expr = args["expression"]
-                .as_str()
-                .ok_or("缺少 expression 参数")?;
+            let expr = args["expression"].as_str().ok_or("缺少 expression 参数")?;
             let result = eval_simple_math(expr).map_err(|e| e.to_string())?;
             Ok(format!("{result}"))
         },

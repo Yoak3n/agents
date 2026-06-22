@@ -1,12 +1,12 @@
 pub mod base;
-pub mod team;
 pub mod subagent;
+pub mod team;
 
 use std::sync::Arc;
 
-use crate::schema::common::{EventListener, Message, ModelProvider, ToolDefinition};
-use crate::llm::{AgentResponse, LlmAdapter};
 use crate::error::AgentError;
+use crate::llm::{AgentResponse, LlmAdapter};
+use crate::schema::common::{EventListener, Message, ModelProvider, ToolDefinition};
 
 pub use base::BaseAgent;
 pub use team::{TeamAgent, TeamResult};
