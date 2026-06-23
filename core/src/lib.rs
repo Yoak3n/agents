@@ -23,30 +23,35 @@ pub use schema::common::{
 
 // ── LLM ──
 pub use llm::adapter::{AgentResponse, LlmAdapter};
-pub use llm::state::{AgentState, Conversation};
+pub use llm::state::{AgentState, Conversation, Session};
 
 // ── Agent ──
 pub use agent::base::BaseAgent;
+pub use agent::builder::{AgentBuilder, AgentOutput};
+pub use agent::plan::{PlanAgent, PlanAgentBuilder, PlanResult, Subtask};
 pub use agent::subagent::{
-    SubAgent, SubAgentContext, SubAgentError, SubAgentRegistry, SubAgentResult,
+    SubAgent, SubAgentContext, SubAgentError, SubAgentRegistry, SubAgentResult, SubAgentStatus,
 };
 pub use agent::team::{
-    AgentContact, AgentMessage, AgentStep, CollaborativeAgent, CollaborativeAgentBuilder,
-    ContactBook, MessageBus, MessageType, TeamAgent, TeamAgentBuilder, TeamResult,
+    AgentContact, AgentStep, CollaborativeAgent, CollaborativeAgentBuilder, ContactBook, TeamAgent,
+    TeamAgentBuilder, TeamResult,
 };
 pub use agent::{AgentLike, ToolExecutor};
 
 // ── Hooks ──
-pub use hook::{AgentHook, HookContext, HookResult};
+pub use hook::{AgentHook, ComposedHook, HookContext, HookResult};
 
 // ── Provider ──
 pub use provider::{
     EmbeddingAdapter, EmbeddingError, OllamaEmbeddingAdapter, OpenAIAdapter,
-    OpenAIEmbeddingAdapter, ProviderBalancer, Semaphore, SemaphoreError, create_embedding_adapter,
+    OpenAIEmbeddingAdapter, ProviderBalancer, RateLimitedAdapter, Semaphore, SemaphoreError,
+    create_embedding_adapter,
 };
 
 // ── Tools ──
-pub use tools::{ProcessManager, ToolRegistry};
+pub use tools::{
+    ApprovalCallback, ApprovalPolicy, ApprovalPolicyBuilder, ProcessManager, ToolRegistry,
+};
 
 // ── Utilities ──
 pub use utils::{chunk_text, estimate_tokens};

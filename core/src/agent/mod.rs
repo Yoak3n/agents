@@ -1,4 +1,6 @@
 pub mod base;
+pub mod builder;
+pub mod plan;
 pub mod subagent;
 pub mod team;
 

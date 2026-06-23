@@ -1,22 +1,19 @@
 mod agent;
-mod bus;
-mod message;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::json;
 
+use crate::provider::ProviderBalancer;
 use crate::schema::common::{Message, ModelProvider, NullListener};
 
-use super::subagent::{SubAgent, SubAgentContext, SubAgentResult};
+use super::subagent::{SubAgent, SubAgentContext, SubAgentResult, SubAgentStatus};
 use crate::llm::{AgentResponse, LlmAdapter};
 
 pub use agent::AgentStep;
 pub use agent::{AgentContact, CollaborativeAgent, CollaborativeAgentBuilder, ContactBook};
-pub use bus::MessageBus;
-pub use message::{AgentMessage, AgentResponseMessage, MessageType};
 
 /// Result from a team task execution.
 pub struct TeamResult {
@@ -25,7 +22,7 @@ pub struct TeamResult {
     pub synthesis: String,
 }
 
-/// Coordinates multiple agents to solve complex tasks via a shared message bus.
+/// Coordinates multiple agents to solve complex tasks.
 ///
 /// ## Architecture
 ///
@@ -58,8 +55,7 @@ pub struct TeamResult {
 pub struct TeamAgent {
     adapter: Arc<dyn LlmAdapter>,
     provider: Option<ModelProvider>,
-    #[allow(dead_code)]
-    bus: Arc<MessageBus>,
+    balancer: Option<ProviderBalancer>,
     agents: Vec<CollaborativeAgent>,
     max_rounds: usize,
 }
@@ -69,12 +65,20 @@ impl TeamAgent {
         TeamAgentBuilder::default()
     }
 
-    /// Execute a team task with full coordination.
+    /// Select a provider using the balancer, falling back to the stored single provider.
+    fn select_provider(&self) -> Option<ModelProvider> {
+        if let Some(ref balancer) = self.balancer {
+            balancer.select().cloned()
+        } else {
+            self.provider.clone()
+        }
+    }
+
+    /// Execute a team task with full coordination (sequential).
     pub async fn execute_team_task(&self, task: &str) -> TeamResult {
         let conversation_id = uuid::Uuid::new_v4().to_string();
         let mut results = Vec::new();
 
-        // Build name→index lookup
         let agent_index: HashMap<String, usize> = self
             .agents
             .iter()
@@ -82,7 +86,6 @@ impl TeamAgent {
             .map(|(i, a)| (a.name().to_string(), i))
             .collect();
 
-        // Process each agent with coordinator-driven loop
         for agent in &self.agents {
             let name = agent.name().to_string();
             let role = agent.role().to_string();
@@ -91,25 +94,28 @@ impl TeamAgent {
             let mut final_output = String::new();
 
             for _round in 0..self.max_rounds {
-                match agent.run_step(&mut messages).await {
+                let provider = self.select_provider();
+                match agent
+                    .run_step_with_provider(&mut messages, provider.as_ref())
+                    .await
+                {
                     AgentStep::Done(result) => {
                         final_output = result;
                         break;
                     }
                     AgentStep::TextOutput(text) if text.is_empty() => {
-                        // Agent made tool calls (non-ask), loop continues
                         continue;
                     }
                     AgentStep::TextOutput(text) => {
-                        // LLM returned text without using tools — treat as result
                         final_output = text;
                         break;
                     }
                     AgentStep::AskPeer { peer, question } => {
-                        // Route the ask to the target agent
                         let answer = if let Some(&target_idx) = agent_index.get(&peer) {
                             let target = &self.agents[target_idx];
-                            self.ask_agent(target, task, &question, &conversation_id)
+                            let mut visited = HashSet::new();
+                            visited.insert(name.clone());
+                            self.ask_agent(target, task, &question, &conversation_id, &mut visited)
                                 .await
                         } else {
                             format!(
@@ -119,9 +125,7 @@ impl TeamAgent {
                             )
                         };
 
-                        // Feed the answer back to the asking agent
                         agent.inject_peer_answer(&mut messages, &peer, &answer);
-                        // Loop continues — agent will process the answer
                     }
                     AgentStep::Error(e) => {
                         final_output = format!("[{} error: {}]", name, e);
@@ -146,17 +150,119 @@ impl TeamAgent {
         }
     }
 
+    /// Execute a team task with all agents running concurrently.
+    pub async fn execute_team_task_parallel(&self, task: &str) -> TeamResult {
+        let agent_index: HashMap<String, usize> = self
+            .agents
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (a.name().to_string(), i))
+            .collect();
+
+        let balancer = self.balancer.clone();
+        let fallback_provider = self.provider.clone();
+
+        let futures: Vec<_> = self
+            .agents
+            .iter()
+            .map(|agent| {
+                let task = task.to_string();
+                let conversation_id = uuid::Uuid::new_v4().to_string();
+                let max_rounds = self.max_rounds;
+                let agent_index = agent_index.clone();
+                let agents = &self.agents;
+                let balancer = balancer.clone();
+                let fallback_provider = fallback_provider.clone();
+                async move {
+                    let name = agent.name().to_string();
+                    let role = agent.role().to_string();
+
+                    let mut messages = agent.build_task_messages(&task);
+                    let mut final_output = String::new();
+
+                    for _round in 0..max_rounds {
+                        let provider = balancer
+                            .as_ref()
+                            .and_then(|b| b.select().cloned())
+                            .or_else(|| fallback_provider.clone());
+                        match agent
+                            .run_step_with_provider(&mut messages, provider.as_ref())
+                            .await
+                        {
+                            AgentStep::Done(result) => {
+                                final_output = result;
+                                break;
+                            }
+                            AgentStep::TextOutput(text) if text.is_empty() => continue,
+                            AgentStep::TextOutput(text) => {
+                                final_output = text;
+                                break;
+                            }
+                            AgentStep::AskPeer { peer, question } => {
+                                let answer = if let Some(&target_idx) = agent_index.get(&peer) {
+                                    let target = &agents[target_idx];
+                                    let mut visited = HashSet::new();
+                                    visited.insert(name.clone());
+                                    // Note: recursive ask_agent in parallel context
+                                    // uses sequential sub-routes
+                                    self_ask_agent_static(
+                                        target,
+                                        &task,
+                                        &question,
+                                        &conversation_id,
+                                        &mut visited,
+                                        agents,
+                                        max_rounds,
+                                    )
+                                    .await
+                                } else {
+                                    format!(
+                                        "[Error: agent '{}' not found. Available: {}]",
+                                        peer,
+                                        agent_index.keys().cloned().collect::<Vec<_>>().join(", ")
+                                    )
+                                };
+
+                                agent.inject_peer_answer(&mut messages, &peer, &answer);
+                            }
+                            AgentStep::Error(e) => {
+                                final_output = format!("[{} error: {}]", name, e);
+                                break;
+                            }
+                        }
+                    }
+
+                    if final_output.is_empty() {
+                        final_output = format!("[{}: max rounds exceeded]", name);
+                    }
+
+                    (name, role, final_output)
+                }
+            })
+            .collect();
+
+        let results = futures::future::join_all(futures).await;
+        let synthesis = self.synthesize_results(task, &results).await;
+
+        TeamResult {
+            task: task.to_string(),
+            agent_outputs: results,
+            synthesis,
+        }
+    }
+
     /// Ask a target agent a question and get its answer.
     ///
     /// Runs a mini coordination loop: the target agent may itself ask other agents.
+    /// Cycle detection prevents infinite recursion.
     async fn ask_agent(
         &self,
         agent: &CollaborativeAgent,
         original_task: &str,
         question: &str,
         conversation_id: &str,
+        visited: &mut HashSet<String>,
     ) -> String {
-        // Build a focused message for the target agent
         let context_msg = format!(
             "A teammate needs your help with a specific question related to the overall task.\n\n\
             Original task: {}\n\n\
@@ -166,7 +272,6 @@ impl TeamAgent {
 
         let mut messages = agent.build_task_messages(&context_msg);
 
-        // Build name→index for sub-routing
         let agent_index: HashMap<String, usize> = self
             .agents
             .iter()
@@ -175,7 +280,11 @@ impl TeamAgent {
             .collect();
 
         for _round in 0..self.max_rounds {
-            match agent.run_step(&mut messages).await {
+            let provider = self.select_provider();
+            match agent
+                .run_step_with_provider(&mut messages, provider.as_ref())
+                .await
+            {
                 AgentStep::Done(result) => return result,
                 AgentStep::TextOutput(text) if text.is_empty() => continue,
                 AgentStep::TextOutput(text) => return text,
@@ -183,11 +292,33 @@ impl TeamAgent {
                     peer,
                     question: sub_q,
                 } => {
-                    // Recursive: this agent is asking another
+                    // Cycle detection
+                    if visited.contains(&peer) {
+                        agent.inject_peer_answer(
+                            &mut messages,
+                            &peer,
+                            &format!(
+                                "[Error: circular ask_peer detected: {} -> {}]",
+                                agent.name(),
+                                peer
+                            ),
+                        );
+                        continue;
+                    }
+
                     let answer = if let Some(&idx) = agent_index.get(&peer) {
                         let target = &self.agents[idx];
-                        Box::pin(self.ask_agent(target, original_task, &sub_q, conversation_id))
-                            .await
+                        visited.insert(peer.clone());
+                        let result = Box::pin(self.ask_agent(
+                            target,
+                            original_task,
+                            &sub_q,
+                            conversation_id,
+                            visited,
+                        ))
+                        .await;
+                        visited.remove(&peer);
+                        result
                     } else {
                         format!("[Error: agent '{}' not found]", peer)
                     };
@@ -213,21 +344,9 @@ impl TeamAgent {
             summaries.join("\n\n")
         );
 
-        let provider = match self.provider.clone() {
+        let provider = match self.select_provider() {
             Some(p) => p,
-            None => {
-                // Fall back to config
-                if let Ok(config) = crate::schema::common::AppConfig::load() {
-                    let chat_group = config.group(crate::schema::common::ModelKind::Chat);
-                    if let Some(p) = chat_group.providers.iter().find(|p| p.enabled).cloned() {
-                        p
-                    } else {
-                        return summaries.join("\n\n");
-                    }
-                } else {
-                    return summaries.join("\n\n");
-                }
-            }
+            None => return summaries.join("\n\n"),
         };
         let messages = vec![
             Message::system(
@@ -252,7 +371,7 @@ impl TeamAgent {
 pub struct TeamAgentBuilder {
     agents: Vec<CollaborativeAgent>,
     max_rounds: usize,
-    provider: Option<ModelProvider>,
+    providers: Vec<ModelProvider>,
 }
 
 impl Default for TeamAgentBuilder {
@@ -260,7 +379,7 @@ impl Default for TeamAgentBuilder {
         Self {
             agents: Vec::new(),
             max_rounds: 10,
-            provider: None,
+            providers: Vec::new(),
         }
     }
 }
@@ -277,19 +396,147 @@ impl TeamAgentBuilder {
     }
 
     pub fn provider(mut self, provider: ModelProvider) -> Self {
-        self.provider = Some(provider);
+        self.providers = vec![provider];
         self
     }
 
-    pub fn build(self, adapter: Arc<dyn LlmAdapter>, bus: &Arc<MessageBus>) -> TeamAgent {
+    pub fn providers(mut self, providers: Vec<ModelProvider>) -> Self {
+        self.providers = providers;
+        self
+    }
+
+    fn build_contact_books(&mut self) {
+        let agent_info: Vec<(String, String, Vec<String>, String)> = self
+            .agents
+            .iter()
+            .map(|a| {
+                (
+                    a.name().to_string(),
+                    a.role().to_string(),
+                    a.capabilities().to_vec(),
+                    a.description_val().to_string(),
+                )
+            })
+            .collect();
+
+        for agent in &mut self.agents {
+            let mut book = ContactBook::new();
+            for (name, role, caps, desc) in &agent_info {
+                if name != agent.name() {
+                    book.add(name.clone(), role.clone(), caps.clone(), desc.clone());
+                }
+            }
+            agent.set_contact_book(book);
+        }
+    }
+
+    /// Build the team with a single provider (or none).
+    pub fn build(mut self, adapter: Arc<dyn LlmAdapter>) -> TeamAgent {
+        self.build_contact_books();
+
         TeamAgent {
             adapter,
-            provider: self.provider,
-            bus: bus.clone(),
+            provider: self.providers.first().cloned(),
+            balancer: None,
             agents: self.agents,
             max_rounds: self.max_rounds,
         }
     }
+
+    /// Build the team with multiple providers and automatic load balancing.
+    pub fn build_balanced(mut self, adapter: Arc<dyn LlmAdapter>) -> TeamAgent {
+        self.build_contact_books();
+
+        let balancer = if self.providers.len() > 1 {
+            Some(ProviderBalancer::new(self.providers.clone()))
+        } else {
+            None
+        };
+
+        TeamAgent {
+            adapter,
+            provider: self.providers.first().cloned(),
+            balancer,
+            agents: self.agents,
+            max_rounds: self.max_rounds,
+        }
+    }
+}
+
+// ── Static helper for parallel execution ──
+// (avoids borrowing issues with async closures)
+
+async fn self_ask_agent_static(
+    agent: &CollaborativeAgent,
+    original_task: &str,
+    question: &str,
+    conversation_id: &str,
+    visited: &mut HashSet<String>,
+    all_agents: &[CollaborativeAgent],
+    max_rounds: usize,
+) -> String {
+    let context_msg = format!(
+        "A teammate needs your help with a specific question related to the overall task.\n\n\
+        Original task: {}\n\n\
+        Their question: {}",
+        original_task, question
+    );
+
+    let mut messages = agent.build_task_messages(&context_msg);
+
+    let agent_index: HashMap<String, usize> = all_agents
+        .iter()
+        .enumerate()
+        .map(|(i, a)| (a.name().to_string(), i))
+        .collect();
+
+    for _round in 0..max_rounds {
+        match agent.run_step(&mut messages).await {
+            AgentStep::Done(result) => return result,
+            AgentStep::TextOutput(text) if text.is_empty() => continue,
+            AgentStep::TextOutput(text) => return text,
+            AgentStep::AskPeer {
+                peer,
+                question: sub_q,
+            } => {
+                if visited.contains(&peer) {
+                    agent.inject_peer_answer(
+                        &mut messages,
+                        &peer,
+                        &format!(
+                            "[Error: circular ask_peer detected: {} -> {}]",
+                            agent.name(),
+                            peer
+                        ),
+                    );
+                    continue;
+                }
+
+                let answer = if let Some(&idx) = agent_index.get(&peer) {
+                    let target = &all_agents[idx];
+                    visited.insert(peer.clone());
+                    let result = Box::pin(self_ask_agent_static(
+                        target,
+                        original_task,
+                        &sub_q,
+                        conversation_id,
+                        visited,
+                        all_agents,
+                        max_rounds,
+                    ))
+                    .await;
+                    visited.remove(&peer);
+                    result
+                } else {
+                    format!("[Error: agent '{}' not found]", peer)
+                };
+                agent.inject_peer_answer(&mut messages, &peer, &answer);
+            }
+            AgentStep::Error(e) => return format!("[error: {}]", e),
+        }
+    }
+
+    format!("[{}: max rounds exceeded answering question]", agent.name())
 }
 
 // ── SubAgent impl ──
@@ -301,7 +548,14 @@ impl SubAgent for TeamAgent {
     }
 
     fn description(&self) -> &str {
-        "Coordinate multiple specialized agents to solve complex tasks via message passing"
+        "Coordinate multiple specialized agents to solve complex tasks"
+    }
+
+    fn capabilities(&self) -> Vec<String> {
+        self.agents
+            .iter()
+            .flat_map(|a| a.capabilities().to_vec())
+            .collect()
     }
 
     async fn execute(&self, input: &str, _ctx: SubAgentContext<'_>) -> SubAgentResult {
@@ -309,6 +563,7 @@ impl SubAgent for TeamAgent {
 
         SubAgentResult {
             output: result.synthesis,
+            status: SubAgentStatus::Success,
             metadata: Some(json!({
                 "agent_count": result.agent_outputs.len(),
                 "agents": result.agent_outputs.iter()

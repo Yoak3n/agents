@@ -4,10 +4,15 @@ use std::sync::Arc;
 use serde_json::json;
 use yoakore::prelude::*;
 
-/// Single-turn CLI Agent demo using AgentBuilder.
+/// Multi-turn CLI Agent demo using Session for conversation management.
 ///
 /// Usage:
-///   cargo run -p yoakore --example single_turn_cli
+///   cargo run -p yoakore --example multi_turn_cli
+///
+/// Commands:
+///   /quit    — exit
+///   /clear   — clear conversation history
+///   /history — show message count
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 1. Configure ModelProvider ──
@@ -59,22 +64,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
-    // ── 3. Read user input ──
-    print!("You: ");
-    io::stdout().flush()?;
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let input = input.trim().to_string();
-    if input.is_empty() {
-        println!("No input, exiting.");
-        return Ok(());
-    }
+    let tools = Arc::new(tools);
 
-    // ── 4. Build agent with AgentBuilder ──
+    // ── 3. Create Session and Agent ──
+    let mut session = Session::with_system(
+        "You are a helpful assistant with access to a calculator and clock. \
+         Keep responses concise.",
+    );
+
     let agent = AgentBuilder::new()
         .provider(provider.clone())
         .max_rounds(10)
-        .tools(Arc::new(tools))
+        .tools(tools)
         .with_on_event(|event| match event {
             AgentEvent::Delta(text) => print!("{text}"),
             AgentEvent::ThinkingDelta(text) => eprint!("{text}"),
@@ -91,13 +92,50 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .build_base();
 
-    let mut messages = vec![Message::user(&input)];
+    // ── 4. REPL ──
+    println!("Multi-turn CLI Agent (type /quit to exit, /clear to reset, /history for stats)");
+    println!();
 
-    println!("Assistant: ");
-    let reply = agent.execute(&provider, &mut messages).await?;
+    loop {
+        print!("You: ");
+        io::stdout().flush()?;
 
-    if reply.is_empty() {
-        println!("(no reply)");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_string();
+
+        if input.is_empty() {
+            continue;
+        }
+
+        // Handle commands
+        match input.as_str() {
+            "/quit" | "/exit" => {
+                println!("Goodbye!");
+                break;
+            }
+            "/clear" => {
+                session.clear();
+                println!("(conversation cleared)\n");
+                continue;
+            }
+            "/history" => {
+                println!(
+                    "(messages: {}, session: {})\n",
+                    session.len(),
+                    &session.id[..8]
+                );
+                continue;
+            }
+            _ => {}
+        }
+
+        // Add user message and run agent
+        session.add_user(&input);
+
+        println!("Assistant: ");
+        let _reply = agent.execute_in_session(&provider, &mut session).await?;
+        println!();
     }
 
     Ok(())

@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::Mutex;
 use tokio::time::{Duration, Instant};
 
-use crate::schema::common::ModelProvider;
+use crate::error::AgentError;
+use crate::llm::adapter::{AgentResponse, LlmAdapter};
+use crate::schema::common::{EventListener, ModelProvider, ToolDefinition};
 
 struct TokenBucket {
     tokens: f64,
@@ -151,6 +154,53 @@ pub enum SemaphoreError {
 
     #[error("provider not configured in semaphore")]
     NotConfigured,
+}
+
+/// Wrapper that enforces rate limiting on any `LlmAdapter`.
+///
+/// The inner adapter is called only after the semaphore allows the request.
+/// If the provider is not configured in the semaphore, the request proceeds
+/// without rate limiting (fail-open for backwards compatibility).
+pub struct RateLimitedAdapter {
+    inner: Arc<dyn LlmAdapter>,
+    semaphore: Arc<Semaphore>,
+}
+
+impl RateLimitedAdapter {
+    pub fn new(inner: Arc<dyn LlmAdapter>, semaphore: Arc<Semaphore>) -> Self {
+        Self { inner, semaphore }
+    }
+
+    pub fn semaphore(&self) -> &Arc<Semaphore> {
+        &self.semaphore
+    }
+}
+
+#[async_trait::async_trait]
+impl LlmAdapter for RateLimitedAdapter {
+    async fn chat(
+        &self,
+        provider: &ModelProvider,
+        messages: &[crate::schema::common::Message],
+        tools: &[ToolDefinition],
+        listener: &dyn EventListener,
+    ) -> Result<AgentResponse, AgentError> {
+        // Wait for rate limit clearance. If not configured, proceed anyway.
+        match self.semaphore.wait(provider).await {
+            Ok(()) => {}
+            Err(SemaphoreError::NotConfigured) => {
+                // Auto-configure from provider and retry
+                self.semaphore.configure(provider);
+                let _ = self.semaphore.wait(provider).await;
+            }
+            Err(SemaphoreError::Limited { retry_after }) => {
+                return Err(AgentError::Other(format!(
+                    "rate limited, retry after {retry_after:?}"
+                )));
+            }
+        }
+        self.inner.chat(provider, messages, tools, listener).await
+    }
 }
 
 #[cfg(test)]

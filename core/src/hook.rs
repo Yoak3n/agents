@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use crate::schema::common::{Message, ModelProvider, ToolCall};
@@ -11,6 +13,8 @@ pub enum HookResult {
     Continue,
     /// 跳过本次操作（如跳过某个工具调用）
     Skip,
+    /// 拒绝本次操作，返回工具结果消息但继续循环（软拒绝）
+    Denied(String),
     /// 中止循环，返回错误信息
     Abort(String),
 }
@@ -63,4 +67,65 @@ pub trait AgentHook: Send + Sync {
 
     /// 发生错误时
     async fn on_error(&self, _ctx: &HookContext<'_>, _error: &str) {}
+}
+
+/// Compose two hooks: `first` runs first; if it returns `Continue`,
+/// `second` runs. Non-Continue results from `first` take precedence.
+pub struct ComposedHook {
+    pub first: Arc<dyn AgentHook>,
+    pub second: Arc<dyn AgentHook>,
+}
+
+#[async_trait]
+impl AgentHook for ComposedHook {
+    async fn before_llm_call(
+        &self,
+        ctx: &HookContext<'_>,
+        messages: &mut Vec<Message>,
+    ) -> HookResult {
+        match self.first.before_llm_call(ctx, messages).await {
+            HookResult::Continue => self.second.before_llm_call(ctx, messages).await,
+            other => other,
+        }
+    }
+
+    async fn after_llm_call(
+        &self,
+        ctx: &HookContext<'_>,
+        response: &mut AgentResponse,
+    ) -> HookResult {
+        match self.first.after_llm_call(ctx, response).await {
+            HookResult::Continue => self.second.after_llm_call(ctx, response).await,
+            other => other,
+        }
+    }
+
+    async fn before_tool_call(&self, ctx: &HookContext<'_>, call: &ToolCall) -> HookResult {
+        match self.first.before_tool_call(ctx, call).await {
+            HookResult::Continue => self.second.before_tool_call(ctx, call).await,
+            other => other,
+        }
+    }
+
+    async fn after_tool_call(
+        &self,
+        ctx: &HookContext<'_>,
+        call: &ToolCall,
+        result: &mut String,
+    ) -> HookResult {
+        match self.first.after_tool_call(ctx, call, result).await {
+            HookResult::Continue => self.second.after_tool_call(ctx, call, result).await,
+            other => other,
+        }
+    }
+
+    async fn on_llm_delta(&self, ctx: &HookContext<'_>, delta: &str) {
+        self.first.on_llm_delta(ctx, delta).await;
+        self.second.on_llm_delta(ctx, delta).await;
+    }
+
+    async fn on_error(&self, ctx: &HookContext<'_>, error: &str) {
+        self.first.on_error(ctx, error).await;
+        self.second.on_error(ctx, error).await;
+    }
 }

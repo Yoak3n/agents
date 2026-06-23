@@ -9,7 +9,7 @@ pub use embedding::{
     create_embedding_adapter,
 };
 pub use openai::OpenAIAdapter;
-pub use semaphore::{Semaphore, SemaphoreError};
+pub use semaphore::{RateLimitedAdapter, Semaphore, SemaphoreError};
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -45,6 +45,17 @@ pub struct ProviderBalancer {
     strategy: BalanceStrategy,
     rr_index: AtomicUsize,
     wrr_current_index: AtomicUsize,
+}
+
+impl Clone for ProviderBalancer {
+    fn clone(&self) -> Self {
+        Self {
+            providers: self.providers.clone(),
+            strategy: self.strategy,
+            rr_index: AtomicUsize::new(self.rr_index.load(Ordering::Relaxed)),
+            wrr_current_index: AtomicUsize::new(self.wrr_current_index.load(Ordering::Relaxed)),
+        }
+    }
 }
 
 impl ProviderBalancer {

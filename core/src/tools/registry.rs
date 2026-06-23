@@ -3,8 +3,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::schema::common::ToolDefinition;
+use crate::schema::common::{ToolCall, ToolDefinition};
 
+use super::policy::ApprovalPolicy;
 use super::process::ProcessManager;
 
 type ToolHandler = Box<dyn Fn(serde_json::Value) -> Result<String, String> + Send + Sync>;
@@ -24,12 +25,14 @@ enum Handler {
 
 pub struct ToolRegistry {
     tools: HashMap<String, (ToolDefinition, Handler)>,
+    approval: Option<ApprovalPolicy>,
 }
 
 impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
+            approval: None,
         }
     }
 
@@ -63,6 +66,25 @@ impl ToolRegistry {
 
     pub fn get(&self, name: &str) -> Option<&ToolDefinition> {
         self.tools.get(name).map(|(def, _)| def)
+    }
+
+    /// Set an approval policy for this registry.
+    ///
+    /// Tools listed in the policy will require user approval before execution.
+    /// Unlisted tools remain auto-approved.
+    pub fn set_approval(&mut self, policy: ApprovalPolicy) {
+        self.approval = Some(policy);
+    }
+
+    /// Check whether a tool call is approved by the policy.
+    ///
+    /// Returns `true` if approved or no policy is set (auto-approve).
+    /// Returns `false` if the user denied the call.
+    pub async fn check_approval(&self, call: &ToolCall) -> bool {
+        match &self.approval {
+            Some(policy) => policy.check_approval(call).await,
+            None => true,
+        }
     }
 
     /// Execute a tool by name. Dispatches to sync or async handler.

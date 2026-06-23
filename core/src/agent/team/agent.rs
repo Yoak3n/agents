@@ -2,11 +2,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::json;
-use tokio::sync::mpsc;
 
 use crate::schema::common::{Message, ModelProvider, NullListener, ToolCall, ToolDefinition};
+use crate::tools::{ProcessManager, ToolRegistry};
 
-use super::bus::MessageBus;
 use crate::llm::{AgentResponse, LlmAdapter};
 
 /// Contact book — maps agent names to their capabilities for routing decisions.
@@ -44,7 +43,14 @@ impl ContactBook {
     pub fn render(&self) -> String {
         self.contacts
             .values()
-            .map(|c| format!("- {} ({}): {}", c.name, c.role, c.description))
+            .map(|c| {
+                let caps = if c.capabilities.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", c.capabilities.join(", "))
+                };
+                format!("- {} ({}): {}{}", c.name, c.role, c.description, caps)
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -63,18 +69,16 @@ pub struct AgentContact {
 /// Agents communicate exclusively through tools:
 /// - `report_result` — the **only** way to return work to the coordinator
 /// - `ask_peer` — request information from another team member
-///
-/// This enforces the constraint that agents can only contribute their own
-/// domain work, and can never synthesize others' outputs.
 pub struct CollaborativeAgent {
     name: String,
     role: String,
     system_prompt: String,
+    capabilities: Vec<String>,
+    description: String,
     adapter: Arc<dyn LlmAdapter>,
     contact_book: ContactBook,
     provider: Option<ModelProvider>,
-    #[allow(dead_code)]
-    bus: Arc<MessageBus>,
+    tools: Option<Arc<ToolRegistry>>,
 }
 
 /// What the agent wants to do next in its processing loop.
@@ -102,11 +106,24 @@ impl CollaborativeAgent {
         &self.role
     }
 
+    pub fn capabilities(&self) -> &[String] {
+        &self.capabilities
+    }
+
+    pub fn description_val(&self) -> &str {
+        &self.description
+    }
+
+    /// Set the contact book (called by TeamAgentBuilder after all agents are known).
+    pub(crate) fn set_contact_book(&mut self, book: ContactBook) {
+        self.contact_book = book;
+    }
+
     /// Get the tool definitions this agent supports.
     fn tool_definitions(&self) -> Vec<ToolDefinition> {
         let peer_names: Vec<String> = self.contact_book.contacts.keys().cloned().collect();
 
-        vec![
+        let mut tools = vec![
             ToolDefinition {
                 name: "report_result".to_string(),
                 description: "Submit your final work output to the coordinator. \
@@ -148,7 +165,19 @@ impl CollaborativeAgent {
                     "required": ["peer", "question"]
                 }),
             },
-        ]
+        ];
+
+        // Add custom tools if configured
+        if let Some(ref registry) = self.tools {
+            for def in registry.definitions() {
+                // Don't duplicate the built-in tools
+                if def.name != "report_result" && def.name != "ask_peer" {
+                    tools.push(def);
+                }
+            }
+        }
+
+        tools
     }
 
     /// Build the system prompt and initial messages for a task.
@@ -177,18 +206,28 @@ impl CollaborativeAgent {
     }
 
     /// Run one LLM turn with tools, returning what the agent wants to do next.
-    ///
-    /// The coordinator drives the loop:
-    /// 1. Call `run_step(messages)` → get `AgentStep`
-    /// 2. If `Done` → collect result
-    /// 3. If `AskPeer` → route question, inject answer into messages, call again
-    /// 4. If `TextOutput` → treat as result
     pub async fn run_step(&self, messages: &mut Vec<Message>) -> AgentStep {
+        self.run_step_with_provider(messages, None).await
+    }
+
+    /// Run one LLM turn with an optional provider override.
+    ///
+    /// If `provider_override` is `Some`, it takes precedence over the agent's
+    /// own provider selection. This enables the coordinator to pass a balanced
+    /// provider to each agent.
+    pub async fn run_step_with_provider(
+        &self,
+        messages: &mut Vec<Message>,
+        provider_override: Option<&ModelProvider>,
+    ) -> AgentStep {
         let tools = self.tool_definitions();
 
-        let provider = match self.select_provider() {
-            Some(p) => p,
-            None => return AgentStep::Error("no available provider".to_string()),
+        let provider = match provider_override {
+            Some(p) => p.clone(),
+            None => match self.select_provider() {
+                Some(p) => p,
+                None => return AgentStep::Error("no available provider".to_string()),
+            },
         };
 
         match self
@@ -205,18 +244,16 @@ impl CollaborativeAgent {
 
                 // Check for ask_peer
                 if let Some((peer, question)) = self.find_ask_peer(&calls) {
-                    // Add assistant message to history
                     messages.push(Message::assistant_tool_calls(calls));
                     return AgentStep::AskPeer { peer, question };
                 }
 
-                // Other tool calls — add to messages and continue
+                // Other tool calls — execute and continue
                 messages.push(Message::assistant_tool_calls(calls.clone()));
                 for call in &calls {
                     let output = self.execute_tool(call).await;
                     messages.push(Message::tool_result(&call.id, &output));
                 }
-                // Return a signal to continue (coordinator will call again)
                 AgentStep::TextOutput(String::new()) // empty = continue
             }
             Err(e) => AgentStep::Error(e.to_string()),
@@ -224,11 +261,7 @@ impl CollaborativeAgent {
     }
 
     /// Inject a peer's answer into the conversation and continue.
-    ///
-    /// Called by the coordinator after routing an `ask_peer` request.
     pub fn inject_peer_answer(&self, messages: &mut Vec<Message>, peer: &str, answer: &str) {
-        // Add a tool result for the ask_peer call (the last assistant message)
-        // Find the last ask_peer tool call ID
         if let Some(last_msg) = messages
             .iter()
             .rev()
@@ -242,14 +275,12 @@ impl CollaborativeAgent {
                 }
             }
         }
-        // Fallback: add as user message
         messages.push(Message::user(format!(
             "[Response from {}]: {}",
             peer, answer
         )));
     }
 
-    /// Check if any tool call is `report_result` and extract its value.
     fn find_report_result(&self, calls: &[ToolCall]) -> Option<String> {
         for call in calls {
             if call.name == "report_result" {
@@ -265,7 +296,6 @@ impl CollaborativeAgent {
         None
     }
 
-    /// Check if any tool call is `ask_peer` and extract (peer, question).
     fn find_ask_peer(&self, calls: &[ToolCall]) -> Option<(String, String)> {
         for call in calls {
             if call.name == "ask_peer" {
@@ -292,8 +322,22 @@ impl CollaborativeAgent {
     /// Execute a non-special tool call (not report_result or ask_peer).
     async fn execute_tool(&self, call: &ToolCall) -> String {
         match call.name.as_str() {
-            "report_result" | "ask_peer" => String::new(), // handled elsewhere
-            other => format!("Unknown tool: {}", other),
+            "report_result" | "ask_peer" => String::new(),
+            _ => {
+                if let Some(ref registry) = self.tools {
+                    // Check approval policy before executing.
+                    if !registry.check_approval(call).await {
+                        return format!("[denied] Tool '{}' denied by user", call.name);
+                    }
+                    let pm = Arc::new(ProcessManager::new());
+                    registry
+                        .call(&call.name, call.arguments.clone(), &pm)
+                        .await
+                        .unwrap_or_else(|e| format!("Tool error: {e}"))
+                } else {
+                    format!("Unknown tool: {}", call.name)
+                }
+            }
         }
     }
 
@@ -318,6 +362,7 @@ pub struct CollaborativeAgentBuilder {
     capabilities: Vec<String>,
     description: Option<String>,
     provider: Option<ModelProvider>,
+    tools: Option<Arc<ToolRegistry>>,
 }
 
 impl CollaborativeAgentBuilder {
@@ -356,37 +401,30 @@ impl CollaborativeAgentBuilder {
         self
     }
 
-    /// Build the agent, registering it with the message bus.
-    pub fn build(self, adapter: Arc<dyn LlmAdapter>, bus: &Arc<MessageBus>) -> CollaborativeAgent {
+    pub fn tools(mut self, tools: Arc<ToolRegistry>) -> Self {
+        self.tools = Some(tools);
+        self
+    }
+
+    /// Build the agent. Contact book will be set later by TeamAgentBuilder.
+    pub fn build(self, adapter: Arc<dyn LlmAdapter>) -> CollaborativeAgent {
         let name = self.name.expect("agent name is required");
         let role = self.role.unwrap_or_else(|| "general".to_string());
         let system_prompt = self.system_prompt.unwrap_or_default();
-
-        // Create channel and register with bus
-        let (sender, _receiver) = mpsc::unbounded_channel();
-        bus.register_agent(name.clone(), sender);
-
-        // Build contact book snapshot from current bus registrations
-        let mut contact_book = ContactBook::new();
-        for agent_name in bus.agent_names() {
-            if agent_name != name {
-                contact_book.add(
-                    agent_name.to_string(),
-                    "agent".to_string(),
-                    vec![],
-                    "Team member".to_string(),
-                );
-            }
-        }
+        let description = self
+            .description
+            .unwrap_or_else(|| format!("{} specialist", role));
 
         CollaborativeAgent {
             name,
             role,
             system_prompt,
+            capabilities: self.capabilities,
+            description,
             adapter,
-            contact_book,
+            contact_book: ContactBook::new(),
             provider: self.provider,
-            bus: bus.clone(),
+            tools: self.tools,
         }
     }
 }

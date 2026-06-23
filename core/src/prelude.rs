@@ -21,10 +21,19 @@ pub use crate::llm::adapter::{AgentResponse, LlmAdapter};
 
 // Agent
 pub use crate::agent::base::BaseAgent;
+pub use crate::agent::builder::{AgentBuilder, AgentOutput};
+pub use crate::agent::plan::{PlanAgent, PlanResult, Subtask};
+pub use crate::agent::subagent::{SubAgent, SubAgentContext, SubAgentRegistry, SubAgentResult};
+pub use crate::agent::team::{
+    CollaborativeAgent, CollaborativeAgentBuilder, TeamAgent, TeamResult,
+};
 pub use crate::agent::{AgentLike, ToolExecutor};
 
 // Hooks
-pub use crate::hook::{AgentHook, HookContext, HookResult};
+pub use crate::hook::{AgentHook, ComposedHook, HookContext, HookResult};
+
+// Tool approval
+pub use crate::tools::{ApprovalCallback, ApprovalPolicy, ApprovalPolicyBuilder};
 
 // Error
 pub use crate::error::AgentError;
@@ -33,7 +42,7 @@ pub use crate::error::AgentError;
 pub use crate::tools::{ProcessManager, ToolRegistry};
 
 // State
-pub use crate::llm::state::{AgentState, Conversation};
+pub use crate::llm::state::{AgentState, Conversation, Session};
 
 // Provider
 pub use crate::provider::OpenAIAdapter;
