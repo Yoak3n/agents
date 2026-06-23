@@ -153,7 +153,7 @@ CraftBuilder::new()
 
 ```bash
 cargo run -p yoakraft --example basic_agent
-cargo run -p yoakraft --example multi_turn_cli
+cargo run -p yoakraft --example craft_cli
 cargo run -p yoakraft --example custom_hook
 cargo run -p yoakraft --example cost_tracking
 ```

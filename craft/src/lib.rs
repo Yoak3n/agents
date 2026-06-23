@@ -390,10 +390,10 @@ impl AgentHook for SkillHook {
             return HookResult::Continue;
         }
 
-        if let Some(skill_text) = self.0.format_for_prompt(query) {
-            if let Some(pos) = messages.iter().position(|m| m.role == Role::User) {
-                messages.insert(pos, Message::system(skill_text));
-            }
+        if let Some(skill_text) = self.0.format_for_prompt(query)
+            && let Some(pos) = messages.iter().position(|m| m.role == Role::User)
+        {
+            messages.insert(pos, Message::system(skill_text));
         }
 
         HookResult::Continue

@@ -11,9 +11,7 @@ use yoakraft::prelude::*;
 ///
 /// Usage:
 ///   cargo run -p yoakraft --example custom_hook
-
 // ── Hook 1: Tool call logger ──
-
 struct ToolLogger;
 
 #[async_trait]

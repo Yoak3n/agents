@@ -6,7 +6,7 @@ A Rust workspace for building AI agents — from low-level primitives to full-fe
 
 | Crate | Version | Description |
 |-------|---------|-------------|
-| [**yoakore**](./core) | 0.1.2 | Modular foundation — agent loop, LLM adapter, tools, hooks, multi-agent teams |
+| [**yoakore**](./core) | 0.1.3 | Modular foundation — agent loop, LLM adapter, tools, hooks, multi-agent teams |
 | [**yoakraft**](./craft) | 0.1.0 | Full-featured agent — adds memory, context management, cost tracking, skills |
 
 ## Architecture
@@ -113,7 +113,7 @@ cargo run -p yoakore --example message_injection
 
 # yoakraft examples
 cargo run -p yoakraft --example basic_agent
-cargo run -p yoakraft --example multi_turn_cli
+cargo run -p yoakraft --example craft_cli
 cargo run -p yoakraft --example custom_hook
 cargo run -p yoakraft --example cost_tracking
 ```
