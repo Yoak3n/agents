@@ -1,23 +1,23 @@
 name: Publish to crates.io
 
 on:
-  # 手动触发
   workflow_dispatch:
     inputs:
       crate:
-        description: "要发布的 crate"
+        description: "Crate to publish"
         required: true
         type: choice
         options:
           - yoakore
+          - yoakraft
       dry_run:
-        description: "试运行 (不实际发布)"
+        description: "Dry run (don't actually publish)"
         required: false
         type: boolean
         default: true
 
-  # tag 推送触发: {crate}-v{version}
-  # 例: git tag agent-core-v0.1.0 && git push --tags
+  # Tag push: {crate}-v{version}
+  # e.g. git tag yoakraft-v0.1.0 && git push --tags
   push:
     tags:
       - "*-v*"
@@ -59,7 +59,6 @@ jobs:
         if: github.event_name == 'push'
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
-          # 格式: {crate}-v{version}
           CRATE="${TAG%-v*}"
           VERSION="${TAG##*-v}"
           echo "crate=$CRATE" >> "$GITHUB_OUTPUT"
@@ -75,10 +74,10 @@ jobs:
             CRATE="${{ steps.tag.outputs.crate }}"
           fi
 
-          # crate 名 -> 目录映射
           case "$CRATE" in
             yoakore) DIR="core" ;;
-            *) echo "::error::未知 crate: $CRATE"; exit 1 ;;
+            yoakraft) DIR="craft" ;;
+            *) echo "::error::Unknown crate: $CRATE"; exit 1 ;;
           esac
 
           echo "crate=$CRATE" >> "$GITHUB_OUTPUT"
@@ -96,14 +95,13 @@ jobs:
           echo "Toml version: $TOML_VERSION"
 
           if [[ "$VERSION" != "$TOML_VERSION" ]]; then
-            echo "::error::Tag 版本 ($VERSION) 与 Cargo.toml 版本 ($TOML_VERSION) 不一致"
+            echo "::error::Tag version ($VERSION) doesn't match Cargo.toml version ($TOML_VERSION)"
             exit 1
           fi
 
       - name: Publish
         run: |
           CRATE="${{ steps.dir.outputs.crate }}"
-          DIR="${{ steps.dir.outputs.dir }}"
 
           if [[ "${{ inputs.dry_run }}" == "true" && "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "=== Dry run: $CRATE ==="

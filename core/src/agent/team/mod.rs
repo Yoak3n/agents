@@ -10,7 +10,7 @@ use crate::provider::ProviderBalancer;
 use crate::schema::common::{Message, ModelProvider, NullListener};
 
 use super::subagent::{SubAgent, SubAgentContext, SubAgentResult, SubAgentStatus};
-use crate::llm::{AgentResponse, LlmAdapter};
+use crate::llm::{AgentResponseKind, LlmAdapter};
 
 pub use agent::AgentStep;
 pub use agent::{AgentContact, CollaborativeAgent, CollaborativeAgentBuilder, ContactBook};
@@ -359,8 +359,9 @@ impl TeamAgent {
             .adapter
             .chat(&provider, &messages, &[], &NullListener)
             .await
+            .map(|r| r.kind)
         {
-            Ok(AgentResponse::MessageComplete(msg)) => msg.content,
+            Ok(AgentResponseKind::MessageComplete(msg)) => msg.content,
             _ => summaries.join("\n\n"),
         }
     }

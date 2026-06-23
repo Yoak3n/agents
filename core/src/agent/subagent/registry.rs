@@ -22,7 +22,7 @@ impl SubAgentRegistry {
         self.agents.insert(name, Arc::new(agent));
     }
 
-    /// Register a pre-built Arc<dyn SubAgent> (for sharing with hooks).
+    /// Register a pre-built `Arc<dyn SubAgent>` (for sharing with hooks).
     pub fn register_arc(&mut self, agent: Arc<dyn SubAgent>) {
         let name = agent.name().to_string();
         self.agents.insert(name, agent);

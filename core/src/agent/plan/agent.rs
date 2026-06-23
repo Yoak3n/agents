@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::agent::subagent::{SubAgent, SubAgentContext, SubAgentResult, SubAgentStatus};
 use crate::error::AgentError;
-use crate::llm::{AgentResponse, LlmAdapter};
+use crate::llm::{AgentResponseKind, LlmAdapter};
 use crate::provider::ProviderBalancer;
 use crate::schema::common::{AppConfig, Message, ModelProvider, NullListener};
 
@@ -177,9 +177,9 @@ impl PlanAgent {
             .chat(&provider, &messages, &[], &NullListener)
             .await?;
 
-        let content = match response {
-            AgentResponse::MessageComplete(msg) => msg.content,
-            AgentResponse::ToolCalls(_) => {
+        let content = match response.kind {
+            AgentResponseKind::MessageComplete(msg) => msg.content,
+            AgentResponseKind::ToolCalls(_) => {
                 return Err(AgentError::Other(
                     "plan generation returned tool calls".to_string(),
                 ));
@@ -308,8 +308,9 @@ impl PlanAgent {
             .adapter
             .chat(&provider, &messages, &[], &NullListener)
             .await
+            .map(|r| r.kind)
         {
-            Ok(AgentResponse::MessageComplete(msg)) => msg.content,
+            Ok(AgentResponseKind::MessageComplete(msg)) => msg.content,
             _ => summaries.join("\n\n"),
         }
     }

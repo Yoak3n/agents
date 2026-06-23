@@ -6,7 +6,7 @@ use serde_json::json;
 use crate::schema::common::{Message, ModelProvider, NullListener, ToolCall, ToolDefinition};
 use crate::tools::{ProcessManager, ToolRegistry};
 
-use crate::llm::{AgentResponse, LlmAdapter};
+use crate::llm::{AgentResponseKind, LlmAdapter};
 
 /// Contact book — maps agent names to their capabilities for routing decisions.
 #[derive(Debug, Clone, Default)]
@@ -234,9 +234,10 @@ impl CollaborativeAgent {
             .adapter
             .chat(&provider, messages, &tools, &NullListener)
             .await
+            .map(|r| r.kind)
         {
-            Ok(AgentResponse::MessageComplete(msg)) => AgentStep::TextOutput(msg.content),
-            Ok(AgentResponse::ToolCalls(calls)) => {
+            Ok(AgentResponseKind::MessageComplete(msg)) => AgentStep::TextOutput(msg.content),
+            Ok(AgentResponseKind::ToolCalls(calls)) => {
                 // Check for report_result
                 if let Some(result) = self.find_report_result(&calls) {
                     return AgentStep::Done(result);

@@ -1,0 +1,22 @@
+[package]
+name = "yoakraft"
+version = "0.1.0"
+edition = "2024"
+authors = ["Yoak3n"]
+description = "A full-featured AI agent built on yoakore — memory, context management, cost tracking, skills, and built-in tools"
+license = "MIT"
+repository = "https://github.com/Yoak3n/agents"
+readme = "README.md"
+keywords = ["agent", "llm", "ai", "memory", "cost-tracking"]
+categories = ["development-tools", "api-bindings"]
+
+[dependencies]
+yoakore = { path = "../core", version = "0.1.2", features = ["extension"] }
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+log.workspace = true
+async-trait = "0.1"
+glob = "0.3"
+regex = "1"

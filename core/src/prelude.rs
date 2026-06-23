@@ -17,7 +17,7 @@ pub use crate::schema::common::{
 pub use crate::schema::common::{AgentEvent, EventListener, NullListener, ProcessStatus};
 
 // LLM
-pub use crate::llm::adapter::{AgentResponse, LlmAdapter};
+pub use crate::llm::adapter::{AgentResponse, AgentResponseKind, LlmAdapter, Usage};
 
 // Agent
 pub use crate::agent::base::BaseAgent;

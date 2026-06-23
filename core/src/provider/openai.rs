@@ -7,7 +7,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::error::AgentError;
-use crate::llm::adapter::{AgentResponse, LlmAdapter};
+use crate::llm::adapter::{AgentResponse, LlmAdapter, Usage};
 use crate::schema::common::EventListener;
 use crate::schema::common::{AgentEvent, Message, ModelProvider, Role, ToolCall, ToolDefinition};
 
@@ -40,12 +40,19 @@ struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     tools: Option<Vec<ChatTool>>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream_options: Option<StreamOptions>,
     /// OpenAI style: reasoning_effort ("low" / "medium" / "high")
     #[serde(skip_serializing_if = "Option::is_none")]
     reasoning_effort: Option<String>,
     /// Anthropic style: thinking config
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking: Option<Value>,
+}
+
+#[derive(Serialize)]
+struct StreamOptions {
+    include_usage: bool,
 }
 
 #[derive(Serialize)]
@@ -92,6 +99,22 @@ struct ChatFunctionCall {
 #[derive(Deserialize)]
 struct StreamChunk {
     choices: Vec<StreamChoice>,
+    #[serde(default)]
+    usage: Option<StreamUsage>,
+}
+
+#[derive(Deserialize)]
+struct StreamUsage {
+    prompt_tokens: Option<u64>,
+    completion_tokens: Option<u64>,
+    total_tokens: Option<u64>,
+    #[serde(default)]
+    prompt_tokens_details: Option<PromptTokensDetails>,
+}
+
+#[derive(Deserialize)]
+struct PromptTokensDetails {
+    cached_tokens: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -214,6 +237,9 @@ impl LlmAdapter for OpenAIAdapter {
             max_tokens: Some(provider.max_output),
             tools: chat_tools,
             stream: true,
+            stream_options: Some(StreamOptions {
+                include_usage: true,
+            }),
             reasoning_effort,
             thinking,
         };
@@ -244,6 +270,7 @@ impl LlmAdapter for OpenAIAdapter {
         let mut full_reasoning = String::new();
         let mut tool_accumulators: Vec<ToolCallAccumulator> = Vec::new();
         let mut has_tool_calls = false;
+        let mut last_usage: Option<StreamUsage> = None;
 
         let mut lines = buf_reader.lines();
         while let Some(line) = lines.next_line().await? {
@@ -264,6 +291,11 @@ impl LlmAdapter for OpenAIAdapter {
                 Ok(c) => c,
                 Err(_) => continue,
             };
+
+            // 提取 usage（通常在最后一个 chunk）
+            if chunk.usage.is_some() {
+                last_usage = chunk.usage;
+            }
 
             for choice in chunk.choices {
                 // 内容 delta
@@ -306,6 +338,17 @@ impl LlmAdapter for OpenAIAdapter {
             }
         }
 
+        // 将 StreamUsage 转为 Usage
+        let usage = last_usage.map(|u| Usage {
+            prompt_tokens: u.prompt_tokens.unwrap_or(0),
+            completion_tokens: u.completion_tokens.unwrap_or(0),
+            total_tokens: u.total_tokens.unwrap_or(0),
+            cached_input_tokens: u
+                .prompt_tokens_details
+                .and_then(|d| d.cached_tokens)
+                .unwrap_or(0),
+        });
+
         // 构建最终响应
         if has_tool_calls && !tool_accumulators.is_empty() {
             let calls: Vec<ToolCall> = tool_accumulators
@@ -328,7 +371,7 @@ impl LlmAdapter for OpenAIAdapter {
                 Some(full_reasoning)
             };
             assistant_msg.tool_calls = Some(calls.clone());
-            Ok(AgentResponse::ToolCalls(calls))
+            Ok(AgentResponse::tool_calls(calls).with_usage(usage.unwrap_or_default()))
         } else {
             let mut assistant_msg = Message::assistant(&full_content);
             assistant_msg.reasoning_content = if full_reasoning.is_empty() {
@@ -336,7 +379,10 @@ impl LlmAdapter for OpenAIAdapter {
             } else {
                 Some(full_reasoning)
             };
-            Ok(AgentResponse::MessageComplete(assistant_msg))
+            Ok(
+                AgentResponse::message_complete(assistant_msg)
+                    .with_usage(usage.unwrap_or_default()),
+            )
         }
     }
 }

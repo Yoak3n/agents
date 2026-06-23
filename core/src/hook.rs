@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use crate::schema::common::{Message, ModelProvider, ToolCall};
 
-use crate::llm::AgentResponse;
+use crate::llm::adapter::AgentResponse;
 
 /// Hook 执行结果
 #[derive(Debug)]

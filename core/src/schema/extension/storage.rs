@@ -23,7 +23,6 @@ impl Storage {
         Ok(storage)
     }
 
-    #[cfg(test)]
     pub fn with_path(path: &std::path::Path) -> Result<Self, StorageError> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -112,6 +111,7 @@ impl Storage {
                 weight            REAL NOT NULL DEFAULT 1.0,
                 last_activated_at TEXT NOT NULL,
                 activation_count  INTEGER NOT NULL DEFAULT 0,
+                embedding         BLOB,
                 created_at        TEXT NOT NULL,
                 updated_at        TEXT NOT NULL
             );
@@ -761,6 +761,47 @@ impl Storage {
             .unwrap()
             .execute("DELETE FROM memories WHERE id = ?1", params![id])?;
         Ok(rows > 0)
+    }
+
+    pub fn save_memory_embedding(&self, id: &str, embedding: &[f32]) -> Result<(), StorageError> {
+        let bytes = f32_vec_to_bytes(embedding);
+        self.conn.lock().unwrap().execute(
+            "UPDATE memories SET embedding = ?2 WHERE id = ?1",
+            params![id, bytes],
+        )?;
+        Ok(())
+    }
+
+    pub fn search_memories_embedding(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>, StorageError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {}, embedding FROM memories WHERE embedding IS NOT NULL",
+            Self::SELECT_MEMORY_COLS
+        ))?;
+
+        let mut results: Vec<(MemoryEntry, f32)> = Vec::new();
+        let rows = stmt.query_map([], |row| {
+            let entry = Self::row_to_memory(row)?;
+            let embedding_bytes: Vec<u8> = row.get(11)?;
+            Ok((entry, embedding_bytes))
+        })?;
+
+        for row in rows.flatten() {
+            let mut entry = row.0;
+            let mem_embedding = bytes_to_f32_vec(&row.1);
+            let score = cosine_similarity(query_embedding, &mem_embedding);
+            let decayed =
+                Self::calc_decay_weight(entry.weight, &entry.last_activated_at, MEMORY_DECAY_RATE);
+            entry.weight = decayed;
+            results.push((entry, score));
+        }
+
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        Ok(results.into_iter().take(limit).map(|(e, _)| e).collect())
     }
 
     /// Vector similarity search (cosine similarity)

@@ -155,6 +155,9 @@ pub struct ModelProvider {
     /// 思考/推理模式配置
     #[serde(default)]
     pub thinking: ThinkingConfig,
+    /// 模型上下文窗口大小（token 数），用于上下文管理
+    #[serde(default = "default_max_context_tokens")]
+    pub max_context_tokens: u32,
 }
 
 impl ModelProvider {
@@ -179,6 +182,7 @@ impl ModelProvider {
             enabled: true,
             style: ApiStyle::default(),
             thinking: ThinkingConfig::default(),
+            max_context_tokens: 128000,
         }
     }
 }
@@ -200,6 +204,10 @@ fn default_true() -> bool {
 
 fn default_tier() -> u8 {
     1
+}
+
+fn default_max_context_tokens() -> u32 {
+    128000
 }
 
 /// 一组同类型的 provider 配置

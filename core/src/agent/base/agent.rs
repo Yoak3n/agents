@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use crate::agent::AgentLike;
 use crate::error::AgentError;
 use crate::hook::{AgentHook, HookContext, HookResult};
-use crate::llm::{AgentResponse, LlmAdapter};
+use crate::llm::{AgentResponse, AgentResponseKind, LlmAdapter};
 use crate::schema::common::{
     AgentEvent, EventListener, Message, ModelProvider, NullListener, ToolDefinition,
 };
@@ -187,14 +187,14 @@ impl BaseAgent {
                 }
             }
 
-            match response {
-                AgentResponse::MessageComplete(msg) => {
+            match response.kind {
+                AgentResponseKind::MessageComplete(msg) => {
                     let content = msg.content.clone();
                     messages.push(msg);
                     self.emit(AgentEvent::Done);
                     return Ok(content);
                 }
-                AgentResponse::ToolCalls(calls) => {
+                AgentResponseKind::ToolCalls(calls) => {
                     let assistant_msg = Message::assistant_tool_calls(calls.clone());
                     messages.push(assistant_msg);
 

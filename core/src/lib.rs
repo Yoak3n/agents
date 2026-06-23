@@ -22,7 +22,7 @@ pub use schema::common::{
 };
 
 // ── LLM ──
-pub use llm::adapter::{AgentResponse, LlmAdapter};
+pub use llm::adapter::{AgentResponse, AgentResponseKind, LlmAdapter, Usage};
 pub use llm::state::{AgentState, Conversation, Session};
 
 // ── Agent ──

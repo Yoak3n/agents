@@ -7,7 +7,7 @@ pub mod team;
 use std::sync::Arc;
 
 use crate::error::AgentError;
-use crate::llm::{AgentResponse, LlmAdapter};
+use crate::llm::adapter::{AgentResponse, LlmAdapter};
 use crate::schema::common::{EventListener, Message, ModelProvider, ToolDefinition};
 
 pub use base::BaseAgent;
