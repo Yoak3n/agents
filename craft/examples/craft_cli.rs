@@ -7,13 +7,12 @@ use yoakraft::prelude::*;
 /// Demonstrates: memory, context management, cost tracking, file tools, skills.
 ///
 /// Usage:
-///   cargo run -p yoakraft --example multi_turn_cli
+///   cargo run -p yoakraft --example craft_cli --features storage
 ///
 /// Commands:
 ///   /quit      — exit
 ///   /clear     — clear conversation history
 ///   /cost      — show cost breakdown
-///   /memory    — show memory stats
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 1. Configure provider ──
@@ -53,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     println!("CraftAgent CLI (memory + context + cost + file tools)");
-    println!("Commands: /quit, /clear, /cost, /memory\n");
+    println!("Commands: /quit, /clear, /cost\n");
 
     loop {
         print!("You: ");
@@ -84,14 +83,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 } else {
                     println!("(cost tracking not enabled)\n");
                 }
-                continue;
-            }
-            "/memory" => {
-                let memories = agent
-                    .storage()
-                    .search_memories("", 0, 100)
-                    .unwrap_or_default();
-                println!("(stored memories: {})\n", memories.len());
                 continue;
             }
             _ => {}

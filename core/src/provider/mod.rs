@@ -2,7 +2,7 @@ pub mod embedding;
 pub mod openai;
 pub mod semaphore;
 
-#[cfg(feature = "extension")]
+#[cfg(feature = "storage")]
 pub use embedding::embed_missing_documents;
 pub use embedding::{
     EmbeddingAdapter, EmbeddingError, OllamaEmbeddingAdapter, OpenAIEmbeddingAdapter,

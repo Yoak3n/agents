@@ -90,7 +90,7 @@ impl SubAgentRegistry {
                 session_id,
                 message_history: &[],
                 registry: Some(self),
-                #[cfg(feature = "extension")]
+                #[cfg(feature = "skills")]
                 available_skills: &[],
                 app_config,
             };
@@ -130,7 +130,7 @@ impl SubAgentRegistry {
                         session_id: &session_id,
                         message_history: &[],
                         registry: None, // cannot share &self across threads easily
-                        #[cfg(feature = "extension")]
+                        #[cfg(feature = "skills")]
                         available_skills: &[],
                         app_config: &app_config_clone,
                     };

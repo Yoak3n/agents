@@ -5,7 +5,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::schema::common::ModelProvider;
-#[cfg(feature = "extension")]
+#[cfg(feature = "storage")]
 use crate::schema::extension::storage::Storage;
 
 /// Embedding adapter trait — abstracts different embedding backends.
@@ -160,7 +160,7 @@ pub fn create_embedding_adapter(provider: &ModelProvider) -> Arc<dyn EmbeddingAd
 // ── Embedding Pipeline ──
 
 /// Embed all document chunks for a conversation that are missing embeddings.
-#[cfg(feature = "extension")]
+#[cfg(feature = "storage")]
 pub async fn embed_missing_documents(
     storage: &Arc<Storage>,
     adapter: &dyn EmbeddingAdapter,

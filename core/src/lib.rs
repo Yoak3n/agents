@@ -56,13 +56,17 @@ pub use tools::{
 // ── Utilities ──
 pub use utils::{chunk_text, estimate_tokens};
 
-// ── Extension ──
-#[cfg(feature = "extension")]
-pub use provider::embed_missing_documents;
-#[cfg(feature = "extension")]
+// ── Extension: skills ──
+#[cfg(feature = "skills")]
 pub use runtime::selector::{HeuristicSelector, SkillSelector};
-#[cfg(feature = "extension")]
+#[cfg(feature = "skills")]
+pub use schema::extension::{Skill, SkillError};
+
+// ── Extension: storage ──
+#[cfg(feature = "storage")]
+pub use provider::embed_missing_documents;
+#[cfg(feature = "storage")]
 pub use schema::extension::{
-    ConversationInfo, Document, DocumentSearchResult, MemoryEntry, SessionSummary, Skill,
-    SkillError, Storage, StorageError, Summary,
+    ConversationInfo, Document, DocumentSearchResult, SessionSummary, Storage, StorageError,
+    Summary,
 };

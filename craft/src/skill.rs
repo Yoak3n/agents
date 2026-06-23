@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use yoakore::schema::extension::Skill;
+use yoakore::Skill;
 
 /// Manages loading and selecting skills from a workspace directory.
 pub struct SkillManager {
@@ -28,9 +28,8 @@ impl SkillManager {
         if let Ok(entries) = std::fs::read_dir(&skill_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.file_name().is_some_and(|n| n == "SKILL.md")
-                    && let Ok(content) = std::fs::read_to_string(&path)
-                    && let Some(skill) = parse_skill_md(&content)
+                if path.is_dir()
+                    && let Ok(skill) = Skill::from_dir(&path)
                 {
                     skills.push(skill);
                 }
@@ -81,52 +80,4 @@ impl SkillManager {
             formatted.join("\n\n---\n\n")
         ))
     }
-}
-
-/// Parse a SKILL.md file into a Skill struct.
-fn parse_skill_md(content: &str) -> Option<Skill> {
-    let (frontmatter, body) = if let Some(stripped) = content.strip_prefix("---") {
-        let end = stripped.find("---")?;
-        (&stripped[..end], stripped[end + 3..].trim())
-    } else {
-        return None;
-    };
-
-    let mut name = String::new();
-    let mut description = String::new();
-    let mut read_when = Vec::new();
-    let mut metadata = None;
-    let mut allowed_tools = None;
-
-    for line in frontmatter.lines() {
-        let line = line.trim();
-        if let Some(val) = line.strip_prefix("name:") {
-            name = val.trim().trim_matches('"').to_string();
-        } else if let Some(val) = line.strip_prefix("description:") {
-            description = val.trim().trim_matches('"').to_string();
-        } else if let Some(val) = line.strip_prefix("read_when:") {
-            read_when = val
-                .split(',')
-                .map(|t| t.trim().trim_matches('"').to_string())
-                .filter(|t| !t.is_empty())
-                .collect();
-        } else if let Some(val) = line.strip_prefix("metadata:") {
-            metadata = Some(val.trim().trim_matches('"').to_string());
-        } else if let Some(val) = line.strip_prefix("allowed_tools:") {
-            allowed_tools = Some(val.trim().trim_matches('"').to_string());
-        }
-    }
-
-    if name.is_empty() {
-        return None;
-    }
-
-    Some(Skill {
-        name,
-        description,
-        instructions: body.to_string(),
-        read_when,
-        metadata,
-        allowed_tools,
-    })
 }

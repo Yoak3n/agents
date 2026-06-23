@@ -4,18 +4,34 @@ A full-featured AI agent built on [yoakore](https://crates.io/crates/yoakore) �
 
 ## Features
 
-- **Memory** — persistent memory with keyword retrieval and automatic extraction from assistant replies
+- **Memory** — persistent memory with keyword retrieval and automatic extraction (bring your own backend or use the built-in `MemoryStore`)
 - **Context management** — sliding-window compression to stay within token limits
 - **Cost tracking** — per-provider token usage recording and cost estimation with cached-input discounts
 - **Skills** — load SKILL.md files from a workspace and inject matching skills into prompts
 - **Built-in tools** — `read_file`, `write_file`, `list_directory`, `search_files` out of the box
 - **Composable hooks** — all features are implemented as `AgentHook`s and can be mixed, replaced, or extended
 
+## Feature Flags
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `storage` | no | Enables `MemoryStore` (SQLite-backed memory with weight decay) |
+
+```toml
+[dependencies]
+yoakraft = { version = "0.2", features = ["storage"] }
+```
+
+Without `storage`, use `.memory_provider(Arc::new(your_impl))` to supply your own `MemoryProvider`.
+
 ## Quick Start
 
 ```toml
 [dependencies]
-yoakraft = "0.1"
+yoakraft = "0.2"
+
+# With built-in SQLite memory:
+yoakraft = { version = "0.2", features = ["storage"] }
 ```
 
 ```rust
@@ -33,7 +49,6 @@ async fn main() -> Result<(), AgentError> {
 
     let agent = CraftBuilder::new()
         .provider(provider.clone())
-        .memory(MemoryConfig::default())
         .context(ContextConfig::default())
         .cost_tracking(
             PricingTable::new()
@@ -49,6 +64,16 @@ async fn main() -> Result<(), AgentError> {
 }
 ```
 
+With built-in SQLite memory (requires `storage` feature):
+
+```rust
+let agent = CraftBuilder::new()
+    .provider(provider.clone())
+    .memory(MemoryConfig::default())  // needs features = ["storage"]
+    .context(ContextConfig::default())
+    .build()?;
+```
+
 ## Builder API
 
 `CraftBuilder` provides a fluent API with two customization patterns:
@@ -58,7 +83,7 @@ async fn main() -> Result<(), AgentError> {
 ```rust
 let agent = CraftBuilder::new()
     .provider(provider)
-    .memory(MemoryConfig { max_injected: 5, auto_extract: true })
+    .memory(MemoryConfig { max_injected: 5, auto_extract: true })  // requires `storage` feature
     .context(ContextConfig { recent_to_keep: 20 })
     .cost_tracking(PricingTable::new().default(PricingRule::new(0.001, 0.002)))
     .file_tools(true)
@@ -96,15 +121,20 @@ let agent = CraftBuilder::new()
 
 ### Memory
 
-`DefaultMemory` uses the SQLite-backed `Storage` for persistence. It:
+`MemoryStore` (behind `storage` feature) provides SQLite-backed persistence with weighted memories and exponential forgetting-curve decay. It:
 - **Retrieves** relevant memories via keyword search before each LLM call
 - **Extracts** new memories from assistant replies (when `auto_extract` is enabled)
+- **Decays** memory weights over time (5% daily) so stale memories fade naturally
 
 ```rust
+// Using the built-in MemoryStore (requires `storage` feature)
 .memory(MemoryConfig {
     max_injected: 3,    // max memories injected per call
     auto_extract: true,  // auto-extract from replies
 })
+
+// Or bring your own MemoryProvider
+.memory_provider(Arc::new(MyCustomMemory))
 ```
 
 ### Context Management

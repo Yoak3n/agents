@@ -419,11 +419,18 @@ tools.set_approval(ApprovalPolicy::require_approval(["delete_file"], callback));
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `extension` | no | SQLite storage, skills (YAML), RAG embeddings, session management |
+| `skills` | no | Skill loading from YAML (SKILL.md) |
+| `storage` | no | SQLite-backed session/conversation/document persistence |
+| `extension` | no | Meta-feature: enables both `skills` and `storage` |
 
 ```toml
+# Enable everything
 [dependencies]
-yoakore = { version = "0.1", features = ["extension"] }
+yoakore = { version = "0.2", features = ["extension"] }
+
+# Or pick only what you need
+[dependencies]
+yoakore = { version = "0.2", features = ["skills"] }
 ```
 
 ## Module Structure

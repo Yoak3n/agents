@@ -1,6 +1,6 @@
 [package]
 name = "yoakore"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2024"
 authors = ["Yoak3n"]
 description = "A modular, extensible foundation for building AI agents in Rust"
@@ -31,8 +31,10 @@ dirs = {version = "6", optional = true}
 
 
 [features]
-default = [] 
-extension = ["rusqlite","serde_yml","dirs"]
+default = []
+skills = ["serde_yml"]
+storage = ["rusqlite", "dirs"]
+extension = ["skills", "storage"]
 
 
 [[example]]

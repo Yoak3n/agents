@@ -1,3 +1,3 @@
 pub mod common;
-#[cfg(feature = "extension")]
+#[cfg(any(feature = "skills", feature = "storage"))]
 pub mod extension;

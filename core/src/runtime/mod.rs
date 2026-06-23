@@ -1,2 +1,2 @@
-#[cfg(feature = "extension")]
+#[cfg(feature = "skills")]
 pub mod selector;

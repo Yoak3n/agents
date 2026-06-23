@@ -47,8 +47,10 @@ pub use crate::llm::state::{AgentState, Conversation, Session};
 // Provider
 pub use crate::provider::OpenAIAdapter;
 
-// Extension types (feature-gated)
-#[cfg(feature = "extension")]
-pub use crate::schema::extension::{
-    MemoryEntry, SessionSummary, Skill, SkillError, Storage, StorageError,
-};
+// Extension: skills (feature-gated)
+#[cfg(feature = "skills")]
+pub use crate::schema::extension::{Skill, SkillError};
+
+// Extension: storage (feature-gated)
+#[cfg(feature = "storage")]
+pub use crate::schema::extension::{SessionSummary, Storage, StorageError};

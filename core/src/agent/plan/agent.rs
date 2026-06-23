@@ -236,7 +236,7 @@ impl PlanAgent {
                     session_id,
                     message_history: &[],
                     registry: Some(registry),
-                    #[cfg(feature = "extension")]
+                    #[cfg(feature = "skills")]
                     available_skills: &[],
                     app_config: &app_config,
                 };

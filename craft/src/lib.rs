@@ -5,15 +5,20 @@ pub mod prelude;
 pub mod skill;
 pub mod tools;
 
+use std::pin::Pin;
 use std::sync::Arc;
 
-use yoakore::Storage;
 use yoakore::prelude::*;
+use yoakore::provider::ProviderBalancer;
 
 pub use context::{ContextConfig, ContextHook, ContextManager, DefaultContext};
 pub use cost::{CostCalculator, CostTracker, PricingRule, PricingTable, ProviderUsage};
-pub use memory::{DefaultMemory, MemoryConfig, MemoryHook, MemoryProvider, NewMemory};
+#[cfg(feature = "storage")]
+pub use memory::MemoryStore;
+pub use memory::{MemoryConfig, MemoryEntry, MemoryHook, MemoryProvider, NewMemory};
 pub use skill::SkillManager;
+
+type BuildResult = (BaseAgent, Option<Arc<CostTracker>>);
 
 /// Full-featured agent built on yoakore.
 ///
@@ -22,7 +27,6 @@ pub use skill::SkillManager;
 pub struct CraftAgent {
     inner: BaseAgent,
     provider: ModelProvider,
-    storage: Arc<Storage>,
     cost_tracker: Option<Arc<CostTracker>>,
 }
 
@@ -42,9 +46,13 @@ impl CraftAgent {
         self.inner.execute_in_session(&self.provider, session).await
     }
 
-    /// Access the underlying [`Storage`] handle.
-    pub fn storage(&self) -> &Arc<Storage> {
-        &self.storage
+    /// Run with a [`ProviderBalancer`] for automatic provider selection.
+    pub async fn run_balanced(
+        &self,
+        balancer: &ProviderBalancer,
+        messages: &mut Vec<Message>,
+    ) -> Result<String, AgentError> {
+        self.inner.execute_balanced(balancer, messages).await
     }
 
     /// Borrow the inner [`BaseAgent`].
@@ -87,10 +95,12 @@ impl CraftAgent {
 /// ```
 pub struct CraftBuilder {
     provider: Option<ModelProvider>,
-    storage: Option<Arc<Storage>>,
+    providers: Vec<ModelProvider>,
     max_rounds: usize,
     tools: Option<ToolRegistry>,
     listener: Option<Arc<dyn EventListener>>,
+    adapter: Option<Arc<dyn LlmAdapter>>,
+    inject_rx: Option<tokio::sync::mpsc::Receiver<Message>>,
 
     // 可替换组件 (trait objects)
     memory: Option<Arc<dyn MemoryProvider>>,
@@ -110,6 +120,7 @@ pub struct CraftBuilder {
     extra_hooks: Vec<Arc<dyn AgentHook>>,
 
     file_tools: bool,
+    approval: Option<ApprovalPolicy>,
 }
 
 impl CraftBuilder {
@@ -117,10 +128,12 @@ impl CraftBuilder {
     pub fn new() -> Self {
         Self {
             provider: None,
-            storage: None,
+            providers: Vec::new(),
             max_rounds: 200,
             tools: None,
             listener: None,
+            adapter: None,
+            inject_rx: None,
             memory: None,
             context: None,
             cost: None,
@@ -129,6 +142,7 @@ impl CraftBuilder {
             cost_tracker: None,
             extra_hooks: Vec::new(),
             file_tools: false,
+            approval: None,
         }
     }
 
@@ -140,9 +154,11 @@ impl CraftBuilder {
         self
     }
 
-    /// Set a custom [`Storage`] backend. Defaults to an in-process SQLite database.
-    pub fn storage(mut self, storage: Arc<Storage>) -> Self {
-        self.storage = Some(storage);
+    /// Set multiple providers for load balancing.
+    ///
+    /// When combined with `build_balanced()`, returns a [`ProviderBalancer`] for automatic selection.
+    pub fn providers(mut self, providers: Vec<ModelProvider>) -> Self {
+        self.providers = providers;
         self
     }
 
@@ -164,9 +180,85 @@ impl CraftBuilder {
         self
     }
 
+    /// Set an event listener from an Arc.
+    pub fn listener_arc(mut self, listener: Arc<dyn EventListener>) -> Self {
+        self.listener = Some(listener);
+        self
+    }
+
+    /// Convenience: accept a closure for event callbacks.
+    ///
+    /// ```ignore
+    /// CraftBuilder::new()
+    ///     .provider(p)
+    ///     .with_on_event(|event| {
+    ///         if let AgentEvent::Delta(text) = event {
+    ///             print!("{}", text);
+    ///         }
+    ///     })
+    ///     .build();
+    /// ```
+    pub fn with_on_event(self, f: impl FnMut(&AgentEvent) + Send + Sync + 'static) -> Self {
+        use std::sync::Mutex;
+
+        struct FnEventListener<F: FnMut(&AgentEvent) + Send + Sync>(Mutex<F>);
+        impl<F: FnMut(&AgentEvent) + Send + Sync> EventListener for FnEventListener<F> {
+            fn on_event(&self, event: &AgentEvent) {
+                if let Ok(mut f) = self.0.lock() {
+                    f(event);
+                }
+            }
+        }
+
+        self.listener_arc(Arc::new(FnEventListener(Mutex::new(f))))
+    }
+
+    /// Set a channel receiver for injecting messages mid-run.
+    ///
+    /// Create the channel with `BaseAgent::inject_channel()`.
+    pub fn inject_channel(mut self, rx: tokio::sync::mpsc::Receiver<Message>) -> Self {
+        self.inject_rx = Some(rx);
+        self
+    }
+
     /// Register built-in file-system tools (`read_file`, `write_file`, `list_directory`, `search_files`).
     pub fn file_tools(mut self, enabled: bool) -> Self {
         self.file_tools = enabled;
+        self
+    }
+
+    /// Register a single synchronous tool.
+    ///
+    /// Creates the [`ToolRegistry`] if it doesn't exist yet.
+    pub fn tool(
+        mut self,
+        definition: ToolDefinition,
+        handler: impl Fn(serde_json::Value) -> Result<String, String> + Send + Sync + 'static,
+    ) -> Self {
+        self.tools
+            .get_or_insert_with(ToolRegistry::default)
+            .register(definition, handler);
+        self
+    }
+
+    /// Register a single async tool (with access to [`ProcessManager`]).
+    ///
+    /// Creates the [`ToolRegistry`] if it doesn't exist yet.
+    pub fn tool_async(
+        mut self,
+        definition: ToolDefinition,
+        handler: impl Fn(
+            serde_json::Value,
+            Arc<ProcessManager>,
+        )
+            -> Pin<Box<dyn std::future::Future<Output = Result<String, String>> + Send>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        self.tools
+            .get_or_insert_with(ToolRegistry::default)
+            .register_async(definition, handler);
         self
     }
 
@@ -179,6 +271,20 @@ impl CraftBuilder {
     /// Set an existing `SkillManager` instance.
     pub fn skill_manager(mut self, manager: SkillManager) -> Self {
         self.skill_manager = Some(manager);
+        self
+    }
+
+    /// Set a custom [`LlmAdapter`] (default is `OpenAIAdapter`).
+    ///
+    /// Use this to support non-OpenAI API formats.
+    pub fn adapter(mut self, adapter: impl LlmAdapter + 'static) -> Self {
+        self.adapter = Some(Arc::new(adapter));
+        self
+    }
+
+    /// Set a custom [`LlmAdapter`] from an Arc.
+    pub fn adapter_arc(mut self, adapter: Arc<dyn LlmAdapter>) -> Self {
+        self.adapter = Some(adapter);
         self
     }
 
@@ -205,7 +311,8 @@ impl CraftBuilder {
 
     // ── Convenience methods (use default implementations) ──
 
-    /// Enable the memory system using [`DefaultMemory`].
+    /// Enable the memory system using [`MemoryStore`] (requires `storage` feature).
+    #[cfg(feature = "storage")]
     pub fn memory(mut self, config: MemoryConfig) -> Self {
         self.memory_config = Some(config);
         self.memory = None;
@@ -229,45 +336,113 @@ impl CraftBuilder {
     // ── Extra hooks ──
 
     /// Append a custom hook to the end of the hook chain.
-    pub fn hook(mut self, hook: impl AgentHook + 'static) -> Self {
+    pub fn hooks(mut self, hook: impl AgentHook + 'static) -> Self {
         self.extra_hooks.push(Arc::new(hook));
         self
     }
 
     /// Append a custom hook (Arc version) to the end of the hook chain.
-    pub fn hook_arc(mut self, hook: Arc<dyn AgentHook>) -> Self {
+    pub fn hooks_arc(mut self, hook: Arc<dyn AgentHook>) -> Self {
         self.extra_hooks.push(hook);
+        self
+    }
+
+    /// Alias for [`hooks()`](Self::hooks).
+    pub fn hook(self, hook: impl AgentHook + 'static) -> Self {
+        self.hooks(hook)
+    }
+
+    /// Alias for [`hooks_arc()`](Self::hooks_arc).
+    pub fn hook_arc(self, hook: Arc<dyn AgentHook>) -> Self {
+        self.hooks_arc(hook)
+    }
+
+    /// Set an [`ApprovalPolicy`] to gate dangerous tool calls.
+    ///
+    /// The policy is applied to the [`ToolRegistry`] and checked by the agent
+    /// before each tool execution.
+    pub fn approval(mut self, policy: ApprovalPolicy) -> Self {
+        self.approval = Some(policy);
         self
     }
 
     // ── Build ──
 
+    /// Build the [`CraftAgent`] (single-provider).
     pub fn build(self) -> Result<CraftAgent, AgentError> {
         let provider = self
             .provider
+            .clone()
             .ok_or_else(|| AgentError::Other("at least one provider is required".into()))?;
 
-        let storage = self
-            .storage
-            .unwrap_or_else(|| Arc::new(Storage::new().expect("failed to create default storage")));
+        let (inner, cost_tracker) = self.build_inner(vec![provider.clone()])?;
 
+        Ok(CraftAgent {
+            inner,
+            provider,
+            cost_tracker,
+        })
+    }
+
+    /// Build with multiple providers, returning a [`ProviderBalancer`] for automatic selection.
+    ///
+    /// Use [`CraftAgent::run_balanced()`] with the returned balancer.
+    pub fn build_balanced(self) -> Result<(CraftAgent, ProviderBalancer), AgentError> {
+        let providers = if self.providers.is_empty() {
+            vec![
+                self.provider
+                    .clone()
+                    .ok_or_else(|| AgentError::Other("at least one provider is required".into()))?,
+            ]
+        } else {
+            self.providers.clone()
+        };
+
+        let balancer = ProviderBalancer::new(providers.clone());
+        let default_provider = providers[0].clone();
+        let (inner, cost_tracker) = self.build_inner(providers)?;
+
+        Ok((
+            CraftAgent {
+                inner,
+                provider: default_provider,
+                cost_tracker,
+            },
+            balancer,
+        ))
+    }
+
+    /// Shared build logic.
+    fn build_inner(self, providers: Vec<ModelProvider>) -> Result<BuildResult, AgentError> {
         let mut tools = self.tools.unwrap_or_default();
 
         if self.file_tools {
             tools::register_file_tools(&mut tools);
         }
 
-        // Resolve memory: trait object takes precedence, otherwise create DefaultMemory from config
+        if let Some(policy) = self.approval {
+            tools.set_approval(policy);
+        }
+
+        // Resolve memory: trait object takes precedence, otherwise create MemoryStore from config
         let memory_max_injected = self.memory_config.as_ref().map_or(5, |c| c.max_injected);
+        #[cfg(feature = "storage")]
         let memory_provider: Option<Arc<dyn MemoryProvider>> = if let Some(provider) = self.memory {
             Some(provider)
         } else if let Some(config) = self.memory_config {
             Some(Arc::new(
-                DefaultMemory::new(storage.clone()).auto_extract(config.auto_extract),
+                MemoryStore::new_default()
+                    .expect("failed to create default memory store")
+                    .auto_extract(config.auto_extract),
             ))
         } else {
             None
         };
+        #[cfg(not(feature = "storage"))]
+        let memory_provider: Option<Arc<dyn MemoryProvider>> = self.memory;
+
+        // Use first provider's max_context_tokens for context hook
+        let max_context_tokens = providers.first().map_or(128_000, |p| p.max_context_tokens);
 
         // Assemble hook chain: cost → context → memory → skills → extra_hooks
         let mut hooks: Vec<Arc<dyn AgentHook>> = Vec::new();
@@ -277,18 +452,11 @@ impl CraftBuilder {
         }
 
         if let Some(ctx_mgr) = self.context {
-            hooks.push(Arc::new(ContextHook::new(
-                ctx_mgr,
-                provider.max_context_tokens,
-            )));
+            hooks.push(Arc::new(ContextHook::new(ctx_mgr, max_context_tokens)));
         }
 
         if let Some(mem_provider) = memory_provider {
-            hooks.push(Arc::new(MemoryHook::new(
-                mem_provider,
-                storage.clone(),
-                memory_max_injected,
-            )));
+            hooks.push(Arc::new(MemoryHook::new(mem_provider, memory_max_injected)));
         }
 
         if let Some(skill_mgr) = self.skill_manager {
@@ -304,21 +472,23 @@ impl CraftBuilder {
             .max_rounds(self.max_rounds)
             .tools(Arc::new(tools));
 
+        if let Some(adapter) = self.adapter {
+            builder = builder.adapter_arc(adapter);
+        }
         if let Some(hook) = composed_hook {
             builder = builder.hooks_arc(hook);
         }
         if let Some(listener) = self.listener {
             builder = builder.listener_arc(listener);
         }
+        if let Some(rx) = self.inject_rx {
+            builder = builder.inject_channel(rx);
+        }
 
-        let inner = builder.provider(provider.clone()).build_base();
+        builder = builder.providers(providers);
+        let inner = builder.build_base();
 
-        Ok(CraftAgent {
-            inner,
-            provider,
-            storage,
-            cost_tracker: self.cost_tracker,
-        })
+        Ok((inner, self.cost_tracker))
     }
 }
 

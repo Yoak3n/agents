@@ -17,7 +17,7 @@ impl EventListener for NullListener {
     fn on_event(&self, _event: &AgentEvent) {}
 }
 
-#[cfg(feature = "extension")]
+#[cfg(feature = "storage")]
 use crate::schema::extension::storage::SessionSummary;
 /// Status of a managed subprocess
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,7 +56,7 @@ pub enum AgentEvent {
     // ── Session management events ──
     /// Session list loaded
 
-    #[cfg(feature = "extension")]
+    #[cfg(feature = "storage")]
     SessionsLoaded(Vec<SessionSummary>),
     /// New session created (session_id)
     SessionCreated(String),

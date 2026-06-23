@@ -1,7 +1,7 @@
 pub mod registry;
 
 use crate::schema::common::{AppConfig, Message};
-#[cfg(feature = "extension")]
+#[cfg(feature = "skills")]
 use crate::schema::extension::skill::Skill;
 use async_trait::async_trait;
 
@@ -30,7 +30,7 @@ pub struct SubAgentContext<'a> {
     /// Parent registry for hierarchical composition. Sub-agents can use this
     /// to delegate work to other sub-agents.
     pub registry: Option<&'a super::subagent::SubAgentRegistry>,
-    #[cfg(feature = "extension")]
+    #[cfg(feature = "skills")]
     pub available_skills: &'a [Skill],
     pub app_config: &'a AppConfig,
 }
